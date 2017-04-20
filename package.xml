@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="2">
+    <name>batching_pomp</name>
+    <version>0.0.0</version>
+    <description>POMP with Batching</description>
+    <author email="shushmanchoudhury@gmail.com">Shushman Choudhury</author>
+    <maintainer email="shushmanchoudhury@gmail.com"></maintainer>
+    <license>BSD</license>
+    <buildtool_depend>catkin</buildtool_depend>
+    <depend>ompl</depend>
+    <depend>boost</depend>
+</package>
