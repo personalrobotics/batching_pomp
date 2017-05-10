@@ -52,7 +52,7 @@ public:
                std::string _roadmapFileName,
                Graph& _currentRoadmap,
                double _radiusInflFactor,
-               std::function<double(unsigned int)>& _initRadiusFn,
+               std::function<double(unsigned int)> _initRadiusFn,
                double _maxRadius
                )
   : BatchingManager(_space,_stateMap,_roadmapFileName,_currentRoadmap)
@@ -85,6 +85,11 @@ public:
     return mInitRadius;
   }
 
+  void setCurrentRadius(double _currentRadius)
+  {
+    mCurrRadius = _currentRadius;
+  }
+
   double getCurrentRadius() const
   {
     return mCurrRadius;
@@ -100,11 +105,15 @@ public:
     return mMaxRadius;
   }
 
-
   //////////////////////////////////////////////////
   /// Overriden methods
-  void nextBatch(std::function<bool(Vertex)>& _isAdmissible) override
+  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible) override
   {
+
+    if(mExhausted){
+      OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
+    }
+
     OMPL_INFORM("New Edge Batch called!");
     ++mNumBatches;
 

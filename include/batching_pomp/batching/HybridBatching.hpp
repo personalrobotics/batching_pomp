@@ -24,8 +24,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
 
-#ifndef BATCHING_POMP_VERTEX_BATCHING_HPP_
-#define BATCHING_POMP_VERTEX_BATCHING_HPP_
+#ifndef BATCHING_POMP_HYBRID_BATCHING_HPP_
+#define BATCHING_POMP_HYBRID_BATCHING_HPP_
 
 #include <exception>
 #include <ompl/base/StateSpace.h>
@@ -38,7 +38,7 @@ namespace batching_pomp {
 namespace batching {
 
 template<class Graph, class VStateMap, class StateCon>
-class VertexBatching : public virtual BatchingManager<Graph, VStateMap, StateCon> 
+class HybridBatching : public virtual BatchingManager<Graph, VStateMap, StateCon> 
 {
 
 typedef boost::graph_traits<Graph> GraphTypes;
@@ -47,17 +47,26 @@ typedef typename GraphTypes::vertex_descriptor Vertex;
 
 public:
 
-  /// Derived constructor to initialize the number of vertices
-  VertexBatching(const ompl::base::StateSpacePtr _space,
+  HybridBatching(const ompl::base::StateSpacePtr _space,
                  VStateMap _stateMap,
                  std::string _roadmapFileName,
                  Graph& _currentRoadmap,
                  unsigned int _initNumVertices,
-                 double _vertInflFactor)
+                 double _vertInflFactor,
+                 double _radiusInflFactor,
+                 std::function<double(unsigned int)> _initRadiusFn,
+                 double _maxRadius
+                 )
   : BatchingManager(_space,_stateMap,_roadmapFileName,_currentRoadmap)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
+  , mRadiusInflFactor{_radiusInflFactor}
+  , mInitRadius{_initRadiusFn(_initNumVertices)}
+  , mCurrRadius{mInitRadius}
+  , mMaxRadius{_maxRadius}
+  , mEdgeBatchingMode{false}
+  , mRadiusFn{std::move(_initRadiusFn)}
   {
     boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
   }
@@ -74,6 +83,51 @@ public:
     return mVertInflFactor;
   }
 
+  void setRadiusInflationFactor(unsigned int _radiusInflFactor)
+  {
+    mRadiusInflFactor = _radiusInflFactor;
+  }
+
+  double getRadiusInflationFactor() const
+  {
+    return mRadiusInflFactor;
+  }
+
+  void setInitRadius(double _initRadius)
+  {
+    mInitRadius = _initRadius;
+  }
+
+  double getInitRadius() const
+  {
+    return mInitRadius;
+  }
+
+  void setCurrentRadius(double _currentRadius)
+  {
+    mCurrRadius = _currentRadius;
+  }
+
+  double getCurrentRadius() const
+  {
+    return mCurrRadius;
+  }
+
+  void setMaxRadius(double _maxRadius)
+  {
+    mMaxRadius = _maxRadius;
+  }
+
+  double getMaxRadius() const
+  {
+    return mMaxRadius;
+  }
+
+  bool isInEdgeBatchingMode() const
+  {
+    return mEdgeBatchingMode;
+  }
+
   //////////////////////////////////////////////////
   /// Overriden methods
   void nextBatch(const std::function<bool(Vertex)>& _isAdmissible) override
@@ -83,30 +137,45 @@ public:
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
     }
 
-    OMPL_INFORM("New Vertex Batch called!");
+    OMPL_INFORM("New Hybrid Batch called!");
     ++mNumBatches;
 
-    while(mNumVerticesAdded < mNextVertexTarget)
+    if(!mEdgeBatchingMode)
     {
-      /// Only add if best cost through vertex better than current solution
-      if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
-        Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
-        mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
+      while(mNumVerticesAdded < mNextVertexTarget)
+      {
+        if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
+          Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
+          mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
+        }
+
+        ++mCurrVertex;
+        ++mNumVerticesAdded;
+
+        /// If all samples added, next round will be edge batching mode
+        if(mCurrVertex == mLastVertex) {
+          mEdgeBatchingMode = true;
+          break;
+        }
       }
 
-      /// Increment stuff
-      ++mCurrVertex;
-      ++mNumVerticesAdded;
+      mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
 
-      if(mCurrVertex == mLastVertex) {
+      mCurrRadius = mRadiusFn(mNextVertexTarget);
+    }
+    else
+    {
+      mCurrRadius = mCurrRadius * mRadiusInflFactor;
+
+      if(mCurrRadius > mMaxRadius)
+      {
+        mCurrRadius = mMaxRadius;
         mExhausted = true;
-        break;
       }
     }
 
-    /// Update size of next subgraph
-    mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
   }
+
 
 private:
 
@@ -114,13 +183,19 @@ private:
   unsigned int mNextVertexTarget;
   double mVertInflFactor;
 
-  /// For tracking which vertices have been included
+  double mRadiusInflFactor;
+  double mInitRadius;
+  double mCurrRadius;
+  double mMaxRadius;
+
   VertexIter mCurrVertex;
   VertexIter mLastVertex;
 
+  bool mEdgeBatchingMode;
+  std::function<double(unsigned int)> mRadiusFn;
+
 };
 
-} //namespace batching
-} //namespace batching_pomp
-
-#endif //BATCHING_POMP_VERTEX_BATCHING_HPP_
+} // namespace batching_pomp
+} // namespace batching
+#endif //BATCHING_POMP_HYBRID_BATCHING_HPP_
