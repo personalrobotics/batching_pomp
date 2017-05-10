@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/datastructures/NearestNeighborsLinear.h>
 #include <ompl/datastructures/NearestNeighborsGNAT.h>
 #include <Eigen/Dense>
-#include "Manager.hpp"
+#include "Model.hpp"
 #include "BeliefPoint.hpp"
 
 namespace batching_pomp {
@@ -43,43 +43,40 @@ namespace cspacebelief {
 /// And weighted averaging over neighbouring belief points
 /// The weights are inversely proportional to the distance
 
-using BeliefPointNNPtr = std::shared_ptr<ompl::NearestNeighbors<BeliefPoint>>;
-
-
-class KNNModel : public virtual Manager<BeliefPoint>
+class KNNModel : public virtual Model<BeliefPoint>
 {
 public:
 
   /// \param[in] _KNN The value of k for KNN lookup
   /// \param[in] _supportThreshold The distance threshold to consider nearest neighbors for
   /// \param[in] _distanceFunction The ompl NearestNeighbours Distance Function to set 
-  KNNModel(int _KNN, double _supportThreshold,
+  KNNModel(size_t _KNN, double _supportThreshold,
            double _prior, double _priorWeight,
            std::function<double(const BeliefPoint&, const BeliefPoint&)>& _distanceFunction)
-          : mNumPoints(0)
-          , mPrior(_prior)
-          , mPriorWeight(_priorWeight)
-          , mKNN(_KNN)
-          , mSupportThreshold(_supportThreshold)
-          , mDistanceFunction(std::move(_distanceFunction))
+  : mNumPoints{0}
+  , mKNN{_KNN}
+  , mSupportThreshold{_supportThreshold}
+  , mPrior{_prior}
+  , mPriorWeight{_priorWeight}
+  , mDistanceFunction(std::move(_distanceFunction))
   {
-    mBeliefPointNN.reset(new ompl::NearestNeighborsLinear<BeliefPoint>());
+    mBeliefPointNN.reset(new ompl::NearestNeighborsGNAT<BeliefPoint>());
     mBeliefPointNN->setDistanceFunction(mDistanceFunction);
   }
 
   //////////////////////////////////////////////////
   // Setters
-  void setPrior(int _prior)
+  void setPrior(double _prior)
   {
     mPrior = _prior;
   }
 
-  void setPriorWeight(int _priorWeight)
+  void setPriorWeight(double _priorWeight)
   {
     mPriorWeight = _priorWeight;
   }
 
-  void setKNN(int _knn)
+  void setKNN(size_t _knn)
   {
     mKNN = _knn;
   }
@@ -110,7 +107,7 @@ public:
     }
 
     // If fewer than k thus far, take all points
-    int knn = std::min(mKNN , mNumPoints);
+    size_t knn = std::min(mKNN , mNumPoints);
 
     std::vector<BeliefPoint> neighboursVect;
     mBeliefPointNN->nearestK(query,knn,neighboursVect);
@@ -140,8 +137,11 @@ public:
   }
 
 private:
-  int mNumPoints;
-  int mKNN;
+  using BeliefPointNNPtr
+    = std::shared_ptr<ompl::NearestNeighbors<BeliefPoint>>;
+    
+  size_t mNumPoints;
+  size_t mKNN;
   double mSupportThreshold;
   double mPrior;
   double mPriorWeight;

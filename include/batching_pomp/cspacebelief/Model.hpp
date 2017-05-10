@@ -24,8 +24,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
 
-#ifndef BATCHING_POMP_CSPACEBELIEF_MANAGER_HPP_
-#define BATCHING_POMP_CSPACEBELIEF_MANAGER_HPP_
+#ifndef BATCHING_POMP_CSPACEBELIEF_MODEL_HPP_
+#define BATCHING_POMP_CSPACEBELIEF_MODEL_HPP_
 
 namespace batching_pomp {
 namespace cspacebelief {
@@ -34,11 +34,11 @@ namespace cspacebelief {
 /// It is templated on the type of data structure used to represent
 /// a configuration space point and its result
 template <class _T>
-class Manager
+class Model
 {
 public:
 
-    virtual ~Manager() = default;
+    virtual ~Model() = default;
 
     /// Add a data point to the belief manager
     virtual void addPoint(const _T &data) = 0;
@@ -54,4 +54,4 @@ public:
 } //namespace cspacebelief
 } //namespace ompl_pomp
 
-#endif //BATCHING_POMP_CSPACEBELIEF_MANAGER_HPP_
+#endif //BATCHING_POMP_CSPACEBELIEF_MODEL_HPP_

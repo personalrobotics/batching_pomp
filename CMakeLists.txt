@@ -45,4 +45,4 @@ add_definitions("-Wall")
 #)
 
 add_executable(model_tester ignore/test_model.cpp)
-target_link_libraries(model_tester ${catkin_LIBRARIES} ${OMPL_LIBRARIES})
+target_link_libraries(model_tester ${catkin_LIBRARIES} ${OMPL_LIBRARIES} ${Boost_LIBRARIES})

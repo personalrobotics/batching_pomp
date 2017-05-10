@@ -24,58 +24,50 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
 
-#ifndef BATCHING_POMP_CSPACEBELIEF_BELIEFPOINT_HPP_
-#define BATCHING_POMP_CSPACEBELIEF_BELIEFPOINT_HPP_
+#ifndef BATCHING_POMP_EDGE_BATCHING_HPP_
+#define BATCHING_POMP_EDGE_BATCHING_HPP_
 
-#include <ompl/base/State.h>
-#include <functional>
+#include <exception>
+#include <ompl/base/StateSpace.h>
+#include <ompl/util/Console.h>
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/properties.hpp>
+#include "batching_pomp/batching/BatchingManager.hpp"
 
 namespace batching_pomp {
-namespace cspacebelief {
+namespace batching {
 
-/// Represents a single member of the configuration space
-/// belief model. Consists of the state and the result
-/// of the collision check of that state.
-
-struct BeliefPoint {
-
-  const ompl::base::State* state;
-  double value;
-
-  BeliefPoint():value(0.0){}
-  BeliefPoint(const ompl::base::State* _state, double _val)
-  : state{_state}
-  , value{_val} {}
-
-  double getValue()
-  {
-    return value;
-  }
-
-  // TODO : Are these operator overloads correct?
-  bool operator==(const BeliefPoint& bp) const
-  {
-    return (state==bp.state);
-  }
-
-  bool operator!=(const BeliefPoint& bp) const
-  {
-    return (state!=bp.state);
-  }
-};
-
-/// Computes (symmetric) distance metric between two belief-point instances
-/// \param[in] _distFun The distance function between underlying ompl state instances
-/// \param[in] _bp1, _bp2 The two belief point instances
-/// \return The distance between two belief points
-double beliefDistanceFunction(
-  std::function<double(const ompl::base::State*, const ompl::base::State*)>& _distFun,
-  const BeliefPoint& _bp1, const BeliefPoint& _bp2)
+template<class Graph, class VStateMap, class StateCon>
+class EdgeBatching : public virtual BatchingManager<Graph, VStateMap, StateCon>
 {
-  return _distFun(_bp1.state, _bp2.state);
-}
 
-} //namespace cspacebelief
+typedef boost::graph_traits<Graph> GraphTypes;
+typedef typename GraphTypes::vertex_iterator VertexIter;
+typedef typename GraphTypes::vertex_descriptor Vertex;
+
+public:
+
+  EdgeBatching(const ompl::base::StateSpacePtr _space,
+               VStateMap _stateMap,
+               std::string _roadmapFileName,
+               std::function<double(unsigned int)>& _initRadiusFn,
+               double _radiusInflFactor)
+  : BatchingManager(_space,_stateMap,_roadmapFileName)
+  , mCurrRadius{_initRadiusFn(mNumVertices)}
+  , mRadiusInflFactor{_radiusInflFactor}
+  {
+  }
+
+
+private:
+
+  double mRadiusInflFactor;
+  double mCurrRadius;
+
+
+
+};
+} //namespace batching
 } //namespace batching_pomp
 
-#endif //BATCHING_POMP_CSPACEBELIEF_BELIEFPOINT_HPP_
+#endif //BATCHING_POMP_EDGE_BATCHING_HPP_

@@ -24,58 +24,71 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
 
-#ifndef BATCHING_POMP_CSPACEBELIEF_BELIEFPOINT_HPP_
-#define BATCHING_POMP_CSPACEBELIEF_BELIEFPOINT_HPP_
+#ifndef BATCHING_POMP_BATCHING_MANAGER_HPP_
+#define BATCHING_POMP_BATCHING_MANAGER_HPP_
 
-#include <ompl/base/State.h>
-#include <functional>
+#include <function>
+#include <ompl/base/StateSpace.h>
+#include <boost/graph/adjacency_list.hpp>
+#include "batching_pomp/util/RoadmapFromFile.hpp"
 
 namespace batching_pomp {
-namespace cspacebelief {
+namespace batching {
 
-/// Represents a single member of the configuration space
-/// belief model. Consists of the state and the result
-/// of the collision check of that state.
+/// Abstract class that represents the batching strategy used for the
+/// planning algorithm. 
+template<class Graph, class VStateMap, class StateCon, class EDistance=StateCon>
+class BatchingManager
+{
 
-struct BeliefPoint {
+typedef boost::graph_traits<Graph> GraphTypes;
+typedef typename GraphTypes::vertex_descriptor Vertex;
 
-  const ompl::base::State* state;
-  double value;
+public:
 
-  BeliefPoint():value(0.0){}
-  BeliefPoint(const ompl::base::State* _state, double _val)
-  : state{_state}
-  , value{_val} {}
-
-  double getValue()
+  BatchingManager(const ompl::base::StateSpacePtr _space,
+                  VStateMap _stateMap,
+                  std::string _roadmapFileName)
+  : mNumBatches{0u}
+  , mExhausted{false}
   {
-    return value;
+    auto file_roadmap_ptr = std::make_shared<
+      batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>
+      (_space,_roadmapFileName);
+    file_roadmap_ptr->generate(mFullRoadmap,_stateMap);
+    mNumVerticesAdded = num_vertices(mFullRoadmap);
   }
 
-  // TODO : Are these operator overloads correct?
-  bool operator==(const BeliefPoint& bp) const
+  unsigned int getNumBatches()
   {
-    return (state==bp.state);
+    return mNumBatches
   }
 
-  bool operator!=(const BeliefPoint& bp) const
+  unsigned int getNumVerticesAdded()
   {
-    return (state!=bp.state);
+    return mNumVerticesAdded;
   }
+
+  bool isExhausted()
+  {
+    return mExhausted;
+  }
+
+  virtual ~BatchingManager() = default;
+
+  virtual void nextBatch(Graph& currentRoadmap,
+                         std::function<bool(Vertex)>& _pruneFunction) = 0;
+
+private:
+
+  Graph mFullRoadmap;
+  unsigned int mNumBatches;
+  unsigned int mNumVertices;
+  bool mExhausted;
+
 };
 
-/// Computes (symmetric) distance metric between two belief-point instances
-/// \param[in] _distFun The distance function between underlying ompl state instances
-/// \param[in] _bp1, _bp2 The two belief point instances
-/// \return The distance between two belief points
-double beliefDistanceFunction(
-  std::function<double(const ompl::base::State*, const ompl::base::State*)>& _distFun,
-  const BeliefPoint& _bp1, const BeliefPoint& _bp2)
-{
-  return _distFun(_bp1.state, _bp2.state);
-}
+} // namespace batching
+} // namespace batching_pomp
 
-} //namespace cspacebelief
-} //namespace batching_pomp
-
-#endif //BATCHING_POMP_CSPACEBELIEF_BELIEFPOINT_HPP_
+# define BATCHING_POMP_BATCHING_MANAGER_HPP_
