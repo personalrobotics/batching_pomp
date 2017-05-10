@@ -48,40 +48,43 @@ public:
 
   BatchingManager(const ompl::base::StateSpacePtr _space,
                   VStateMap _stateMap,
-                  std::string _roadmapFileName)
-  : mNumBatches{0u}
+                  std::string _roadmapFileName
+                  Graph& _currentRoadmap)
+  : mCurrentRoadmap{_currentRoadmap}
+  , mNumBatches{0u}
   , mExhausted{false}
   {
     auto file_roadmap_ptr = std::make_shared<
       batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>
       (_space,_roadmapFileName);
     file_roadmap_ptr->generate(mFullRoadmap,_stateMap);
-    mNumVerticesAdded = num_vertices(mFullRoadmap);
+    mNumVertices = num_vertices(mFullRoadmap);
   }
 
-  unsigned int getNumBatches()
+  unsigned int getNumBatches() const
   {
-    return mNumBatches
+    return mNumBatches;
   }
 
-  unsigned int getNumVerticesAdded()
+  unsigned int getNumVertices() const
   {
-    return mNumVerticesAdded;
+    return mNumVertices;
   }
 
-  bool isExhausted()
+  bool isExhausted() const
   {
     return mExhausted;
   }
 
   virtual ~BatchingManager() = default;
 
-  virtual void nextBatch(Graph& currentRoadmap,
-                         std::function<bool(Vertex)>& _pruneFunction) = 0;
+  virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction) = 0;
 
 private:
 
   Graph mFullRoadmap;
+  Graph& mCurrentRoadmap;
+
   unsigned int mNumBatches;
   unsigned int mNumVertices;
   bool mExhausted;

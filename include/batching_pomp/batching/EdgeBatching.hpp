@@ -50,20 +50,95 @@ public:
   EdgeBatching(const ompl::base::StateSpacePtr _space,
                VStateMap _stateMap,
                std::string _roadmapFileName,
+               Graph& _currentRoadmap,
+               double _radiusInflFactor,
                std::function<double(unsigned int)>& _initRadiusFn,
-               double _radiusInflFactor)
-  : BatchingManager(_space,_stateMap,_roadmapFileName)
-  , mCurrRadius{_initRadiusFn(mNumVertices)}
+               double _maxRadius
+               )
+  : BatchingManager(_space,_stateMap,_roadmapFileName,_currentRoadmap)
   , mRadiusInflFactor{_radiusInflFactor}
+  , mInitRadius{_initRadiusFn(mNumVertices)}
+  , mCurrRadius{mInitRadius}
+  , mMaxRadius{_maxRadius}
   {
   }
 
+  //////////////////////////////////////////////////
+  /// Setters and Getters
+  void setRadiusInflationFactor(unsigned int _radiusInflFactor)
+  {
+    mRadiusInflFactor = _radiusInflFactor;
+  }
 
+  double getRadiusInflationFactor() const
+  {
+    return mRadiusInflFactor;
+  }
+
+  void setInitRadius(double _initRadius)
+  {
+    mInitRadius = _initRadius;
+  }
+
+  double getInitRadius() const
+  {
+    return mInitRadius;
+  }
+
+  double getCurrentRadius() const
+  {
+    return mCurrRadius;
+  }
+
+  void setMaxRadius(double _maxRadius)
+  {
+    mMaxRadius = _maxRadius;
+  }
+
+  double getMaxRadius() const
+  {
+    return mMaxRadius;
+  }
+
+
+  //////////////////////////////////////////////////
+  /// Overriden methods
+  void nextBatch(std::function<bool(Vertex)>& _isAdmissible) override
+  {
+    OMPL_INFORM("New Edge Batch called!");
+    ++mNumBatches;
+
+    if(mNumBatches == 1u)
+    {
+      VertexIter vi, vi_end;
+
+      for(boost::tie(vi,vi_end)=vertices(mFullRoadmap); vi!=vi_end; ++vi)
+      {
+        if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
+          Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
+          mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*vi].v_state;
+        }
+      }     
+    }
+    else {
+      mCurrRadius = mCurrRadius * mRadiusInflFactor;
+    }
+
+    if(mCurrRadius > mMaxRadius)
+    {
+      mCurrRadius = mMaxRadius;
+      mExhausted = true;
+    }
+
+  }
+
+ 
 private:
 
   double mRadiusInflFactor;
+  double mInitRadius;
   double mCurrRadius;
-
+  double mMaxRadius;
 
 
 };

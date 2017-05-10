@@ -50,9 +50,10 @@ public:
   VertexBatching(const ompl::base::StateSpacePtr _space,
                  VStateMap _stateMap,
                  std::string _roadmapFileName,
+                 Graph& _currentRoadmap,
                  unsigned int _initNumVertices,
                  double _vertInflFactor)
-  : BatchingManager(_space,_stateMap,_roadmapFileName)
+  : BatchingManager(_space,_stateMap,_roadmapFileName,_currentRoadmap)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
@@ -62,30 +63,19 @@ public:
 
   //////////////////////////////////////////////////
   /// Setters and Getters
-  void setInitNumVertices(unsigned int _initNumVertices)
-  {
-    mInitNumVertices = _initNumVertices;
-  }
-
-  unsigned int getInitNumVertices()
-  {
-    return mInitNumVertices;
-  }
-
   void setVertexInflationFactor(double _vertInflFactor)
   {
     mVertInflFactor = _vertInflFactor;
   }
 
-  double getVertexInflationFactor()
+  double getVertexInflationFactor() const
   {
     return mVertInflFactor;
   }
 
   //////////////////////////////////////////////////
   /// Overriden methods
-  void nextBatch(Graph& currentRoadmap,
-                 std::function<bool(Vertex)>& _isAdmissible) override
+  void nextBatch(std::function<bool(Vertex)>& _isAdmissible) override
   {
     OMPL_INFORM("New Vertex Batch called!");
     ++mNumBatches;
@@ -94,8 +84,8 @@ public:
     {
       /// Only add if best cost through vertex better than current solution
       if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
-        Vertex newVertex = boost::add_vertex(currentRoadmap);
-        currentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
+        Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
+        mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
       }
 
       /// Increment stuff
