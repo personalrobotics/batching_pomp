@@ -107,11 +107,17 @@ public:
 
   //////////////////////////////////////////////////
   /// Overriden methods
-  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible) override
+  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible,
+                 ompl::NearestNeighbors<Vertex>* _vertexNN) override
   {
 
     if(mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
+      return;
+    }
+
+    if(!_vertexNN){
+      throw std::runtime_error("Nearest neighbour structure pointer is empty!")
     }
 
     OMPL_INFORM("New Edge Batch called!");
@@ -120,14 +126,23 @@ public:
     if(mNumBatches == 1u)
     {
       VertexIter vi, vi_end;
+      std::vector<Vertex> vertex_vector(mNumVertices);
+      size_t idx = 0;
 
+      /// TODO : This assumes ALL vertices will be admissible (vertex_vector full)
       for(boost::tie(vi,vi_end)=vertices(mFullRoadmap); vi!=vi_end; ++vi)
       {
         if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
           Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
           mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*vi].v_state;
+          vertex_vector[idx++] = newVertex;
         }
-      }     
+      }
+      if(idx != mNumVertices){
+        throw std::runtime_error("Not all vertices were admissible for edge batching!");
+      }
+
+      _vertexNN->add(vertex_vector);  
     }
     else {
       mCurrRadius = mCurrRadius * mRadiusInflFactor;

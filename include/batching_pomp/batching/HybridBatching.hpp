@@ -130,11 +130,17 @@ public:
 
   //////////////////////////////////////////////////
   /// Overriden methods
-  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible) override
+  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible,
+                 ompl::NearestNeighbors<Vertex>* _vertexNN) override
   {
 
     if(mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
+      return;
+    }
+
+    if(!_vertexNN){
+      throw std::runtime_error("Nearest neighbour structure pointer is empty!")
     }
 
     OMPL_INFORM("New Hybrid Batch called!");
@@ -144,9 +150,12 @@ public:
     {
       while(mNumVerticesAdded < mNextVertexTarget)
       {
+        std::vector<Vertex> vertex_vector;
+
         if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
           Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
           mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
+          vertex_vector.push_back(newVertex);
         }
 
         ++mCurrVertex;
@@ -159,6 +168,8 @@ public:
         }
       }
 
+      _vertexNN->add(vertex_vector);
+      
       mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
 
       mCurrRadius = mRadiusFn(mNextVertexTarget);

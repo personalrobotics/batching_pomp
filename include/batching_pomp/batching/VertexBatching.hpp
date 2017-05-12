@@ -53,7 +53,8 @@ public:
                  std::string _roadmapFileName,
                  Graph& _currentRoadmap,
                  unsigned int _initNumVertices,
-                 double _vertInflFactor)
+                 double _vertInflFactor
+                 )
   : BatchingManager(_space,_stateMap,_roadmapFileName,_currentRoadmap)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
@@ -76,11 +77,17 @@ public:
 
   //////////////////////////////////////////////////
   /// Overriden methods
-  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible) override
+  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible,
+                 ompl::NearestNeighbors<Vertex>* _vertexNN) override
   {
 
     if(mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
+      return;
+    }
+
+    if(!_vertexNN){
+      throw std::runtime_error("Nearest neighbour structure pointer is empty!")
     }
 
     OMPL_INFORM("New Vertex Batch called!");
@@ -88,10 +95,14 @@ public:
 
     while(mNumVerticesAdded < mNextVertexTarget)
     {
+
+      std::vector<Vertex> vertex_vector;
+
       /// Only add if best cost through vertex better than current solution
       if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
         Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
         mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
+        vertex_vector.push_back(newVertex);
       }
 
       /// Increment stuff
@@ -103,6 +114,9 @@ public:
         break;
       }
     }
+
+    /// Update nearest neighbour structure with vertices
+    _vertexNN->add(vertex_vector);
 
     /// Update size of next subgraph
     mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);

@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <function>
 #include <ompl/base/StateSpace.h>
+#include <ompl/datastructures/NearestNeighbors.h>
 #include <boost/graph/adjacency_list.hpp>
 #include "batching_pomp/util/RoadmapFromFile.hpp"
 
@@ -78,7 +79,10 @@ public:
 
   virtual ~BatchingManager() = default;
 
-  virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction) = 0;
+  /// Nearest neighbour member may be nullptr (for single batch case)
+  /// PASS unique_ptr.
+  virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction,
+                         ompl::NearestNeighbors<Vertex>* _vertexNN) = 0;
 
 private:
 
