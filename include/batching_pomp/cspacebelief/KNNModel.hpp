@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <functional>
 #include <exception>
+#include <memory>
 #include <ompl/datastructures/NearestNeighbors.h>
 #include <ompl/datastructures/NearestNeighborsLinear.h>
 #include <ompl/datastructures/NearestNeighborsGNAT.h>
@@ -137,15 +138,13 @@ public:
   }
 
 private:
-  using BeliefPointNNPtr
-    = std::shared_ptr<ompl::NearestNeighbors<BeliefPoint>>;
     
   size_t mNumPoints;
   size_t mKNN;
   double mSupportThreshold;
   double mPrior;
   double mPriorWeight;
-  BeliefPointNNPtr mBeliefPointNN;
+  std::unique_ptr<ompl::NearestNeighbors<BeliefPoint>> mBeliefPointNN;
   std::function<double(const BeliefPoint&, const BeliefPoint&)> mDistanceFunction;
 };
 
