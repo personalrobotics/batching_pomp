@@ -27,6 +27,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef BATCHING_POMP_BATCHINGPOMP_HPP_
 #define BATCHING_POMP_BATCHINGPOMP_HPP_
 
+#include <exception>
+#include <memory>
+
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/properties.hpp>
+
+#include <ompl/base/Planner.h>
+#include <ompl/base/StateSpace.h>
+#include <ompl/base/ScopedState.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/datastructures/NearestNeighbors.h>
 
 #include "batching.hpp"
 #include "cspacebelief.hpp"
@@ -46,6 +57,125 @@ struct StateCon
   ~StateCon() {space->freeState(this->state); }
 };
 
+typedef std::shared_ptr<StateCon> StateConPtr;
+
+
+class BatchingPOMP : public ompl::base::Planner
+{
+
+  using batching_pomp::batching::BatchingManager;
+  using batching_pomp::cspacebelief::BeliefPoint;
+  using batching_pomp::cspacebelief::Model;
+  using batching_pomp::cspacebelief::Selector;
+  using batching_pomp::cspacebelief::BisectPerm;
+
+  const static int FREE{1};
+  const static int BLOCKED{-1};
+  const static int UNKNOWN{0};
+
+public:
+
+  struct VProps
+  {
+    StateConPtr v_state;
+  };
+
+  struct EProps
+  {
+    double distance;
+    double probFree;
+  };
+
+  /// Graph definitions
+  typedef boost::adjacency_list< boost::vecS, boost::vecS, boost::undirectedS, VProps, EProps> Graph;
+  typedef boost::graph_traits<Graph>::vertex_descriptor Vertex;
+  typedef boost::graph_traits<Graph>::vertex_iterator VertexIter;
+  typedef boost::graph_traits<Graph>::edge_descriptor Edge;
+  typedef boost::graph_traits<Graph>::edge_iterator EdgeIter;
+  typedef boost::graph_traits<Graph>::out_edge_iterator OutEdgeIter;
+
+  /// Boost property maps needed by planner
+  typedef boost::property_map<Graph, StateConPtr VProps::*>::type VPStateMap;
+  typedef boost::property_map<Graph, double EProps::*>::type EPDistanceMap;
+  typedef boost::property_map<Graph, boost::vertex_index_t>::type VertexIndexMap;
+
+  /// Public variables for the planner
+  const ompl::base::StateSpacePtr space;
+
+  std::unique_ptr< BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > mBatchingPtr;
+
+  std::unique_ptr< Model<BeliefPoint> > mBeliefModel;
+
+  Graph g;
+
+  /// OMPL methods
+  BatchingPOMP(const ompl::base::SpaceInformationPtr & si);
+
+  /// Constructor for non-default stuff
+  BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
+               std::unique_ptr<BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>> _batchingPtr,
+               std::unique_ptr< Model<BeliefPoint> _beliefModel
+               )
+
+  ~BatchingPOMP(void);
+
+  /// Setters and Getters
+  double getSearchInflationFactor() const;
+  void setSearchInflationFactor(double _searchInflFactor);
+  double getDecrement() const;
+  void setDecrement(double _decrement);
+  double getStartGoalRadius() const;
+  void setStartGoalRadius(double _startGoalRadius);
+  std::string getGraphType() const;
+  void setGraphType(std::string _graphType);
+  std::string getRoadmapFileName() const;
+  void setRoadmapFileName(std::string _roadmapFileName);
+
+  /// Evaluation methods
+  inline unsigned int getNumEdgeChecks(){ return mNumEdgeChecks;}
+  inline unsigned int getNumCollChecks(){ return mNumCollChecks;}
+  inline unsigned int getNumSearches(){ return mNumSearches;}
+  inline double getLookupTime(){ return mLookupTime;}
+
+  /// OMPL required methods
+  void setProblemDefinition(const ompl::base::ProblemDefinitionPtr & pdef);
+  ompl::base::PlannerStatus solve(const ompl::base::PlannerTerminationCondition & ptc);
+
+private:
+
+  /// Planning helpers
+  Selector<Graph> mSelector;
+  BisectPerm mBisectPermObj;
+  Vertex mStartVertex;
+  Vertex mGoalVertex;
+  std::vector<Edge> mEdgesToUpdate;
+  std::vector<Edge> mCurrBestPath;
+
+  /// Planner parameters
+  double mSearchInflationFactor;
+  double mDecrement;
+  double mStartGoalRadius;
+  bool mIsInitSearchBatch;
+  bool MIsPathFound;
+  double mCheckRadius;
+  double mBestCost;
+  std::string mGraphType;
+  std::string mRoadmapName;
+
+  /// For planner evaluation
+  unsigned int mNumEdgeChecks;
+  unsigned int mNumCollChecks;
+  unsigned int mNumSearches;
+  double mLookupTime;
+
+
+};
+
+
+
+
+////////////////////////////////////////////////////////////////////
+/// Helper classes
 
 class throw_visitor_exception : public std::exception {};
 class throw_visitor
@@ -58,8 +188,9 @@ public:
   inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
   {
-    if(u == mVThrow)
+    if(u == mVThrow) {
       throw throw_visitor_exception();
+    }
   }
   inline void examine_edge(BatchingPOMP::Edge e, const BatchingPOMP::Graph& g) {}
   inline void edge_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
@@ -76,16 +207,24 @@ public:
   ompl::NearestNeighbors<BatchingPOMP::Vertex>& mVertexNN;
   double mCurrRadius;
   std::function<double(const BatchingPOMP::Vertex&, const BatchingPOMP::Vertex&)> mVertexDistFun;
+  BatchingPOMP::Vertex mVThrow;
 
   neighbours_visitor(ompl::NearestNeighbors<BatchingPOMP::Vertex>& _vertexNN, 
-                     double _currRadius)
+                     double _currRadius,
+                     BatchingPOMP::Vertex _vThrow)
   : mVertexNN{_vertexNN}
-  , mCurrRadius{_currRadius} 
+  , mCurrRadius{_currRadius}
+  , mVThrow{_vThrow}
   , mVertexDistFun{mVertexNN->getDistanceFunction()} {}
   inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
   {
+
+    if(u == mVThrow) {
+      throw throw_visitor_exception();
+    }
+
     std::vector<BatchingPOMP::Vertex> vertexNbrs;
     mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
 
@@ -104,6 +243,57 @@ public:
   inline void edge_not_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
   inline void black_target(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
   inline void finish_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph & g) {}
+};
+
+/// Weight map for expected edge cost
+class EdgeWeightMap
+{
+public:
+
+  BatchingPOMP& mPlanner;
+  EdgeWeightMap(BatchingPOMP& _planner)
+  : mPlanner{_planner} {}
+};
+
+const double get(const EdgeWeightMap& _ewMap, const BatchingPOMP::Edge& e)
+{
+  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::BLOCKED) {
+    return std::numeric_limits<double>::max();
+  }
+
+  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::FREE) {
+    return _ewMap.mPlanner.g[e].distance;
+  }
+
+  double infl_factor{_ewMap.mPlanner.getInflationFactor()};
+  double rho{_ewMap.mPlanner.g[e].probFree};
+  double distance{dmap.pm_planner.g[e].distance};
+  double exp_cost = distance*(rho + infl_factor*(1-rho));
+
+  return exp_cost;
+}
+
+/// Log probability weight map
+class LogProbMap
+{
+public:
+
+  BatchingPOMP& mPlanner;
+  LogProbMap(BatchingPOMP& _planner)
+  : mPlanner{_planner} {}
+};
+
+const double get(const LogProbMap& _ewMap, const BatchingPOMP::Edge& e)
+{
+  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::BLOCKED) {
+    return std::numeric_limits<double>::max();
+  }
+
+  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::FREE) {
+    return 0.0;
+  }
+
+  return -std::log(g[e].probFree);
 };
 
 
