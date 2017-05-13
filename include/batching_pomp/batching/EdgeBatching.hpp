@@ -38,12 +38,19 @@ namespace batching_pomp {
 namespace batching {
 
 template<class Graph, class VStateMap, class StateCon>
-class EdgeBatching : public virtual BatchingManager<Graph, VStateMap, StateCon>
+class EdgeBatching : public BatchingManager<Graph, VStateMap, StateCon>
 {
 
 typedef boost::graph_traits<Graph> GraphTypes;
 typedef typename GraphTypes::vertex_iterator VertexIter;
 typedef typename GraphTypes::vertex_descriptor Vertex;
+
+
+using BatchingManager<Graph, VStateMap, StateCon>::mFullRoadmap;
+using BatchingManager<Graph, VStateMap, StateCon>::mCurrentRoadmap;
+using BatchingManager<Graph, VStateMap, StateCon>::mNumBatches;
+using BatchingManager<Graph, VStateMap, StateCon>::mNumVertices;
+using BatchingManager<Graph, VStateMap, StateCon>::mExhausted;
 
 public:
 
@@ -55,7 +62,7 @@ public:
                std::function<double(unsigned int)> _initRadiusFn,
                double _maxRadius
                )
-  : BatchingManager(_space,_stateMap,_roadmapFileName,_currentRoadmap)
+  : BatchingManager<Graph, VStateMap, StateCon>(_space,_stateMap,_roadmapFileName,_currentRoadmap)
   , mRadiusInflFactor{_radiusInflFactor}
   , mInitRadius{_initRadiusFn(mNumVertices)}
   , mCurrRadius{mInitRadius}
@@ -117,7 +124,7 @@ public:
     }
 
     if(!_vertexNN){
-      throw std::runtime_error("Nearest neighbour structure pointer is empty!")
+      throw std::runtime_error("Nearest neighbour structure pointer is empty!");
     }
 
     OMPL_INFORM("New Edge Batch called!");
@@ -132,7 +139,7 @@ public:
       /// TODO : This assumes ALL vertices will be admissible (vertex_vector full)
       for(boost::tie(vi,vi_end)=vertices(mFullRoadmap); vi!=vi_end; ++vi)
       {
-        if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
+        if(_isAdmissible(mFullRoadmap[*vi])) {
           Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
           mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*vi].v_state;
           vertex_vector[idx++] = newVertex;

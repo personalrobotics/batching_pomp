@@ -38,12 +38,18 @@ namespace batching_pomp {
 namespace batching {
 
 template<class Graph, class VStateMap, class StateCon>
-class HybridBatching : public virtual BatchingManager<Graph, VStateMap, StateCon> 
+class HybridBatching : public BatchingManager<Graph, VStateMap, StateCon> 
 {
 
 typedef boost::graph_traits<Graph> GraphTypes;
 typedef typename GraphTypes::vertex_iterator VertexIter;
 typedef typename GraphTypes::vertex_descriptor Vertex;
+
+using BatchingManager<Graph, VStateMap, StateCon>::mFullRoadmap;
+using BatchingManager<Graph, VStateMap, StateCon>::mCurrentRoadmap;
+using BatchingManager<Graph, VStateMap, StateCon>::mNumBatches;
+using BatchingManager<Graph, VStateMap, StateCon>::mNumVertices;
+using BatchingManager<Graph, VStateMap, StateCon>::mExhausted;
 
 public:
 
@@ -57,7 +63,7 @@ public:
                  std::function<double(unsigned int)> _initRadiusFn,
                  double _maxRadius
                  )
-  : BatchingManager(_space,_stateMap,_roadmapFileName,_currentRoadmap)
+  : BatchingManager<Graph, VStateMap, StateCon>(_space,_stateMap,_roadmapFileName,_currentRoadmap)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
@@ -140,7 +146,7 @@ public:
     }
 
     if(!_vertexNN){
-      throw std::runtime_error("Nearest neighbour structure pointer is empty!")
+      throw std::runtime_error("Nearest neighbour structure pointer is empty!");
     }
 
     OMPL_INFORM("New Hybrid Batch called!");
@@ -148,9 +154,10 @@ public:
 
     if(!mEdgeBatchingMode)
     {
+      std::vector<Vertex> vertex_vector;
+
       while(mNumVerticesAdded < mNextVertexTarget)
       {
-        std::vector<Vertex> vertex_vector;
 
         if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
           Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
@@ -168,7 +175,9 @@ public:
         }
       }
 
-      _vertexNN->add(vertex_vector);
+      if(vertex_vector.size()>0) {
+        _vertexNN->add(vertex_vector);
+      }
       
       mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
 

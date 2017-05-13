@@ -27,7 +27,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef BATCHING_POMP_BATCHING_MANAGER_HPP_
 #define BATCHING_POMP_BATCHING_MANAGER_HPP_
 
-#include <function>
+#include <functional>
 #include <ompl/base/StateSpace.h>
 #include <ompl/datastructures/NearestNeighbors.h>
 #include <boost/graph/adjacency_list.hpp>
@@ -49,18 +49,20 @@ public:
 
   BatchingManager(const ompl::base::StateSpacePtr _space,
                   VStateMap _stateMap,
-                  std::string _roadmapFileName
+                  std::string _roadmapFileName,
                   Graph& _currentRoadmap)
   : mCurrentRoadmap{_currentRoadmap}
   , mNumBatches{0u}
   , mExhausted{false}
   {
     auto file_roadmap_ptr = std::make_shared<
-      batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>
+      batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
       (_space,_roadmapFileName);
     file_roadmap_ptr->generate(mFullRoadmap,_stateMap);
     mNumVertices = num_vertices(mFullRoadmap);
   }
+
+  virtual ~BatchingManager() = default;
 
   unsigned int getNumBatches() const
   {
@@ -76,18 +78,17 @@ public:
   {
     return mExhausted;
   }
-
-  virtual ~BatchingManager() = default;
+   
 
   /// Nearest neighbour member may be nullptr (for single batch case)
   /// PASS unique_ptr.
   virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction,
                          ompl::NearestNeighbors<Vertex>* _vertexNN) = 0;
 
-private:
+protected:
 
   Graph mFullRoadmap;
-  Graph& mCurrentRoadmap;
+  Graph & mCurrentRoadmap;
 
   unsigned int mNumBatches;
   unsigned int mNumVertices;
@@ -98,4 +99,4 @@ private:
 } // namespace batching
 } // namespace batching_pomp
 
-# define BATCHING_POMP_BATCHING_MANAGER_HPP_
+# endif //BATCHING_POMP_BATCHING_MANAGER_HPP_
