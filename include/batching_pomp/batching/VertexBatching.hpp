@@ -83,7 +83,7 @@ public:
 
   //////////////////////////////////////////////////
   /// Overriden methods
-  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible,
+  void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>* _vertexNN) override
   {
 
@@ -105,7 +105,7 @@ public:
     {
 
       /// Only add if best cost through vertex better than current solution
-      if(_isAdmissible(mFullRoadmap[*mCurrVertex])) {
+      if(_pruneFunction(mFullRoadmap[*mCurrVertex])) {
         Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
         mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
         vertex_vector.push_back(newVertex);

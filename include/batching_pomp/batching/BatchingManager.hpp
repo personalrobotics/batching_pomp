@@ -43,6 +43,7 @@ class BatchingManager
 {
 
 typedef boost::graph_traits<Graph> GraphTypes;
+typedef typename GraphTypes::vertex_iterator VertexIter;
 typedef typename GraphTypes::vertex_descriptor Vertex;
 
 public:
@@ -78,12 +79,25 @@ public:
   {
     return mExhausted;
   }
-   
+  
+  void pruneVertices(std::function<bool(Vertex)>& _pruneFunction)
+  {
+    /// TODO: Check if this preserves iterator stability
+    VertexIter next,vi,vi_end;
+    boost::tie(vi,vi_end) = vertices(mCurrentRoadmap);
+
+    for(next=vi; vi!=vi_end; vi=next)
+    {
+      if(_pruneFunction(*vi)) {
+        remove_vertex(*vi,mCurrentRoadmap);
+      }
+    }
+  }
 
   /// Nearest neighbour member may be nullptr (for single batch case)
-  /// PASS unique_ptr.
   virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction,
                          ompl::NearestNeighbors<Vertex>* _vertexNN) = 0;
+
 
 protected:
 

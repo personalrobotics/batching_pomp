@@ -114,7 +114,7 @@ public:
 
   //////////////////////////////////////////////////
   /// Overriden methods
-  void nextBatch(const std::function<bool(Vertex)>& _isAdmissible,
+  void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>* _vertexNN) override
   {
 
@@ -139,7 +139,7 @@ public:
       /// TODO : This assumes ALL vertices will be admissible (vertex_vector full)
       for(boost::tie(vi,vi_end)=vertices(mFullRoadmap); vi!=vi_end; ++vi)
       {
-        if(_isAdmissible(mFullRoadmap[*vi])) {
+        if(_pruneFunction(mFullRoadmap[*vi])) {
           Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
           mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*vi].v_state;
           vertex_vector[idx++] = newVertex;
