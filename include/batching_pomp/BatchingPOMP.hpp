@@ -51,8 +51,8 @@ struct StateCon
 {
   const ompl::base::StateSpacePtr space;
   ompl::base::State * state;
-  StateCon(ompl::base::StateSpacePtr space)
-  : space(space)
+  StateCon(const ompl::base::StateSpacePtr _space)
+  : space(_space)
   , state(space->allocState()) {}
   ~StateCon() {space->freeState(this->state); }
 };
@@ -100,7 +100,7 @@ public:
   typedef boost::property_map<Graph, boost::vertex_index_t>::type VertexIndexMap;
 
   /// Public variables for the planner
-  const ompl::base::StateSpacePtr space;
+  const ompl::base::StateSpacePtr mSpace;
 
   std::unique_ptr< BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > mBatchingPtr;
 
@@ -114,8 +114,8 @@ public:
   /// Constructor for non-default stuff
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
                std::unique_ptr<BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>> _batchingPtr,
-               std::unique_ptr< Model<BeliefPoint> _beliefModel
-               )
+               std::unique_ptr< Model<BeliefPoint> _beliefModel,
+               std::unique_ptr<Selector<Graph>> _selector)
 
   ~BatchingPOMP(void);
 
@@ -144,7 +144,7 @@ public:
 private:
 
   /// Planning helpers
-  Selector<Graph> mSelector;
+  std::unique_ptr<Selector<Graph>> mSelector;
   BisectPerm mBisectPermObj;
   Vertex mStartVertex;
   Vertex mGoalVertex;
@@ -156,7 +156,7 @@ private:
   double mDecrement;
   double mStartGoalRadius;
   bool mIsInitSearchBatch;
-  bool MIsPathFound;
+  bool mIsPathFound;
   double mCheckRadius;
   double mBestCost;
   std::string mGraphType;
@@ -296,6 +296,29 @@ const double get(const LogProbMap& _ewMap, const BatchingPOMP::Edge& e)
   return -std::log(g[e].probFree);
 };
 
+/// Euclidean distance heuristic for A-star search
+template<class Graph, class CostType>
+class distance_heuristic : public boost::astar_heuristic<Graph, CostType>
+{
+public:
+  distance_heuristic(const ompl::base::StateSpacePtr _space,
+                     batching_pomp::BatchingPOMP::VPStateMap _vsm,
+                     batching_pomp::BatchingPOMP::Vertex goal)
+  : mSpace{_space}
+  , m_vsm{_vsm}
+  , mGoal{goal}{}
+
+  CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
+  {
+    return mSpace->distance(m_vsm[mGoal]->state, m_vsm[u]->state);
+  }
+
+private:
+  const ompl::base::StateSpacePtr mSpace;
+  batching_pomp::BatchingPOMP::VPStateMap m_vsm;
+  batching_pomp::BatchingPOMP::Vertex mGoal;
+
+};
 
 
 } // namespace batching_pomp
