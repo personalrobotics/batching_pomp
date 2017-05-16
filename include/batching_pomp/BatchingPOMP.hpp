@@ -113,9 +113,15 @@ public:
 
   /// Constructor for non-default stuff
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
-               std::unique_ptr<BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>> _batchingPtr,
+               std::unique_ptr< BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
                std::unique_ptr< Model<BeliefPoint> _beliefModel,
-               std::unique_ptr<Selector<Graph>> _selector)
+               std::unique_ptr< Selector<Graph> > _selector,
+               double _searchInflFactor,
+               double _decrement,
+               double _startGoalRadius,
+               double _checkRadius,
+               const std::string& _graphType,
+               const std::string& _roadmapFileName);
 
   ~BatchingPOMP(void);
 
@@ -127,9 +133,11 @@ public:
   double getStartGoalRadius() const;
   void setStartGoalRadius(double _startGoalRadius);
   std::string getGraphType() const;
-  void setGraphType(std::string _graphType);
+  void setGraphType(const std::string& _graphType);
+  std::string getBatchingType() const;
+  void setGraphType(const std::string& _batchingType);
   std::string getRoadmapFileName() const;
-  void setRoadmapFileName(std::string _roadmapFileName);
+  void setRoadmapFileName(const std::string& _roadmapFileName);
 
   /// Evaluation methods
   inline unsigned int getNumEdgeChecks(){ return mNumEdgeChecks;}
@@ -160,6 +168,7 @@ private:
   double mCheckRadius;
   double mBestCost;
   std::string mGraphType;
+  std::string mBatchingType; // Optional - to be used for non-CPP level calls
   std::string mRoadmapName;
 
   /// For planner evaluation
