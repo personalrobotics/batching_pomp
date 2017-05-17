@@ -25,6 +25,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
 
 #include <functional>
+#include <exception>
+#include <cmath>
 #include "batching_pomp/include/BatchingPOMP.hpp"
 
 namespace batching_pomp{
@@ -33,13 +35,12 @@ using batching_pomp::cspacebelief::BeliefPoint;
 
 /// Default constructor for CPP-level usage
 BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
-                           std::unique_ptr<BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>> _batchingPtr,
-                           std::unique_ptr< Model<BeliefPoint> _beliefModel,
-                           std::unique_ptr<Selector<Graph>> _selector,
+                           std::unique_ptr< BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
+                           std::unique_ptr< Model<BeliefPoint> > _beliefModel,
+                           std::unique_ptr< Selector<Graph> > _selector,
                            double _searchInflFactor,
                            double _decrement,
                            double _startGoalRadius,
-                           const std::string& _graphType,
                            const std::string& _roadmapFileName)
 : ompl::base::Planner(si,"BatchingPOMP")
 , mSpace(si->getStateSpace()),
@@ -53,14 +54,18 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 , mIsPathfound{false}
 , mCheckRadius{0.5*space->getLongestValidSegmentLength()}
 , mBestCost{std::numeric_limits<double>::max()}
-, mGraphType{_graphType}
+, mGraphType{""}
 , mBatchingType{""}
+, mSelectorType{""}
 , mRoadmapName{_roadmapFileName}
 , mNumEdgeChecks{0u}
 , mNumCollChecks{0u}
 , mNumSearches{0u}
 , mLookupTime{0.0}
 {
+  /// Create vertex nearest neighbour manager
+  mVertexNN.reset(new ompl::NearestNeighborsGNAT<Vertex>());
+  mVertexNN->setDistanceFunction(vertexDistFun);
 }
 
 /// Pure OMPL constructor using parameters
@@ -78,6 +83,7 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
 , mBestCost{std::numeric_limits<double>::max()}
 , mGraphType{""}
 , mBatchingType{""}
+, mSelectorType{""}
 , mRoadmapName{""}
 , mNumEdgeChecks{0u}
 , mNumCollChecks{0u}
@@ -92,11 +98,79 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
     bpDistFun = std::bind(batching_pomp::cspacebelief::beliefDistanceFunction,spaceDistFun,std::placeholders::_1,std::placeholders::_2);
 
   /// Create model manager with default parameters
-  mBeliefModel = std::make_unique<batching_pomp::cspacebelief::KNNModel>(15,2.0,0.5,0.25,bpDistFun);
+  mBeliefModel.reset(new batching_pomp::cspacebelief::KNNModel(15,2.0,0.5,0.25,bpDistFun));
 
+  /// Create vertex nearest neighbour manager
+  mVertexNN.reset(new ompl::NearestNeighborsGNAT<Vertex>());
+  mVertexNN->setDistanceFunction(vertexDistFun);
 
+  /// Define OMPL parameters
+  Planner::declareParam<double>("inflation", this, &BatchingPOMP::setSearchInflationFactor, &BatchingPOMP::getSearchInflationFactor);
+  Planner::declareParam<double>("decrement", this, &BatchingPOMP::setDecrement, &BatchingPOMP::getDecrement);
+  Planner::declareParam<double>("start_goal_radius", this, &BatchingPOMP::setStartGoalRadius, &BatchingPOMP::getStartGoalRadius);
+  Planner::declareParam<std::string>("graph_type", this, &BatchingPOMP::setSearchInflationFactor, &BatchingPOMP::getSearchInflationFactor);
+  Planner::declareParam<std::string>("batching_type", this, &BatchingPOMP::setBatchingType, &BatchingPOMP::getBatchingType);
+  Planner::declareParam<std::string>("selector_type", this, &BatchingPOMP::setSelectorType, &BatchingPOMP::getSelectorType);
+  Planner::declareParam<std::string>("roadmap_filename", this, &BatchingPOMP::setRoadmapFileName, &BatchingPOMP::getRoadmapFileName);
 
+  /// Create objects that depend on parameters
 
+  /// Radius function type for Edge or Hybrid Batching
+  if(mGraphType == "" && (mBatchingType=="edge" || mBatchingType=="hybrid")) {
+    throw std::runtime_error("Need a graph type to get radius function!");
+  }
+  if(mGraphType == "halton") {
+    mRadiusFun = haltonRadiusFun;
+  }
+  else if (mGraphType == "rgg") {
+    mRadiusFun = rggRadiusFun;
+  }
+  else{
+    throw std::invalid_argument("Invalid graph type specified - "+mGraphType+"!");
+  }
+
+  if(mRoadmapName == "") {
+    throw std::runtime_error("Roadmap name must be set before creating batching manager!");
+  }
+
+  /// Now create batching pointer with default parameters
+  if(mBatchingType == "vertex") {
+    unsigned int initNumVertices = 100u;
+    double vertInflFactor = 2.0;
+    
+    mBatchingPtr.reset(
+      new batching_pomp::batching::VertexBatching<Graph,VPStateMap,StateCon>
+        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, initNumVertices, vertInflFactor) );
+  }
+  else if(mBatchingType == "edge") {
+    auto dimDbl = static_cast<double>(mSpace->getDimension());
+    double radiusInflFactor = std::pow(2.0,1/dimDbl);
+    double maxRadius = mSpace->getMaximumExtent();
+    
+    mBatchingPtr.reset(
+      new batching_pomp::batching::EdgeBatching<Graph,VPStateMap,StateCon>
+        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, radiusInflFactor, mRadiusFun, maxRadius) );
+  }
+  else if(mBatchingType == "hybrid") {
+    unsigned int initNumVertices = 100u;
+    double vertInflFactor = 2.0;
+    auto dimDbl = static_cast<double>(mSpace->getDimension());
+    double radiusInflFactor = std::pow(2.0,1/dimDbl);
+    double maxRadius = mSpace->getMaximumExtent();
+
+    mBatchingPtr.reset(
+      new batching_pomp::batching::HybridBatching<Graph,VPStateMap,StateCon>
+        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, initNumVertices, vertInflFactor, radiusInflFactor, mRadiusFun, maxRadius) );
+  }
+  else {
+    throw std::runtime_error("Invalid batching type specified - "+mBatchingType+"!");
+  }
+
+  /// Create selector with the type specified
+  if(mSelector == "") {
+    throw std::runtime_error("Selector type must be set before creation");
+  }
+  mSelector.reset(new batching_pomp::util::Selector(mSelectorType));
 }
 
 
@@ -106,76 +180,170 @@ BatchingPOMP::~BatchingPOMP()
 
 ////////////////////////////////////////////////////////////////////
 /// Setters and Getters
-double getSearchInflationFactor() const
+double BatchingPOMP::getSearchInflationFactor() const
 {
   return mSearchInflationFactor;
 }
 
-void setSearchInflationFactor(double _searchInflFactor)
+void BatchingPOMP::setSearchInflationFactor(double _searchInflFactor)
 {
   mSearchInflationFactor = _searchInflFactor;
 }
 
-double getDecrement() const
+double BatchingPOMP::getDecrement() const
 {
   return mDecrement;
 }
 
-void setDecrement(double _decrement)
+void BatchingPOMP::setDecrement(double _decrement)
 {
   mDecrement = _decrement;
 }
 
-double getStartGoalRadius() const
+double BatchingPOMP::getStartGoalRadius() const
 {
   return mStartGoalRadius;
 }
 
-void setStartGoalRadius(double _startGoalRadius)
+void BatchingPOMP::setStartGoalRadius(double _startGoalRadius)
 {
   mStartGoalRadius = _startGoalRadius;
 }
 
-double getCheckRadius() const
+double BatchingPOMP::getCheckRadius() const
 {
   return mCheckRadius;
 }
 
-void setCheckRadius(double _checkRadius)
+void BatchingPOMP::setCheckRadius(double _checkRadius)
 {
   mCheckRadius = _checkRadius;
 }
 
-std::string getGraphType() const
+std::string BatchingPOMP::getGraphType() const
 {
   return mGraphType;
 }
 
-void setGraphType(const std::string& _graphType)
+void BatchingPOMP::setGraphType(const std::string& _graphType)
 {
   mGraphType = _graphType;
 }
 
-std::string getBatchingType() const
+std::string BatchingPOMP::getBatchingType() const
 {
   return mBatchingType;
 }
 
-void setBatchingType(const std::string& _batchingType)
+void BatchingPOMP::setBatchingType(const std::string& _batchingType)
 {
   mBatchingType = _batchingType;
 }
 
-std::string getRoadmapFileName() const
+std::string BatchingPOMP::getSelectorType() const
+{
+  return mSelectorType;
+}
+
+void BatchingPOMP::setSelectorType(const std::string& _selectorType)
+{
+  mSelectorType = _selectorType;
+}
+
+std::string BatchingPOMP::getRoadmapFileName() const
 {
   return mRoadmapName;
 }
 
-void setRoadmapFileName(const std::string& _roadmapFileName)
+void BatchingPOMP::setRoadmapFileName(const std::string& _roadmapFileName)
 {
   mRoadmapName = _roadmapFileName;
 }
 
+
+/// Private helper methods
+double BatchingPOMP::vertexDistFun(const Vertex& u, const Vertex& v) const
+{
+  return mSpace->distance(g[u].v_state->state, g[v].v_state->state);
+}
+
+double BatchingPOMP::haltonRadiusFun(unsigned int n) const
+{
+  auto dimDbl = static_cast<double>(mSpace->getDimension());
+  // TODO : Add the formula here
+}
+
+double BatchingPOMP::rggRadiusFun(unsigned int n) const
+{
+  auto dimDbl = static_cast<double>(mSpace->getDimension());
+  // TODO : Add the formula here
+}
+
+//TODO : USE STATECONPTR HERE!
+double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
+{
+  /// March along edge states with some jump factor
+  /// And estimate the probability of collision of each
+
+  auto startState = g[source(e,g)].v_state->state;
+  auto endState = g[target(e,g)].v_state->state;
+
+  unsigned int nStates{std::floor(g[e].distance / (2.0*mCheckRadius))};
+  unsigned int stepSize{5};
+  double result{1.0};
+
+  for(unsigned int i = 0; i < nStates; i+=stepSize)
+  {
+    ompl::base::State* tempState{mSpace->allocState()};
+    mSpace->interpolate(startState, endState,
+      1.0*(1+i)/(nStates+1), tempState);
+
+    BeliefPoint query(tempState, -1.0);
+    double collProb = mBeliefModel->estimate(query);
+    result *= (1.0 - coll_prob);
+  }
+
+  g[e].probFree = result;
+  return result;
+}
+
+
+bool checkAndSetEdgeBlocked(const Edge& e)
+{
+  /// March along edge states with highest resolution
+  mNumEdgeChecks++;
+
+  auto validityChecker = si_->getStateValidityChecker();
+  
+  auto startState = g[source(e,g)].v_state->state;
+  auto endState = g[target(e,g)].v_state->state;
+  unsigned int nStates{std::floor(g[e].distance / (2.0*mCheckRadius))};
+
+  const std::vector< std::pair<int,int> > & order = bisectPermObj_.get(nStates);
+
+  for(unsigned int i = 0; i < nStates; i++)
+  {
+    ompl::base::State* tempState{mSpace->allocState()};
+    mSpace->interpolate(startState, endState,
+      1.0*(1+order[ui].first)/(nStates+1), tempState);
+
+    mNumCollChecks++;
+    /// Check and add to belief model
+    if(validityChecker->isValid(tempState) == false) {
+      BeliefPoint toAdd(tempState,1.0);
+      mBeliefModel->addPoint(toAdd);
+      g[e].blockedStatus = BatchingPOMP::BLOCKED;
+      return true;
+    }
+    else {
+      BeliefPoint toAdd(tempState,0.0);
+      mBeliefModel->addPoint(toAdd);
+    }
+  }
+
+  g[e].blockedStatus = BatchingPOMP::FREE;
+  return false;
+}
 
 
 
