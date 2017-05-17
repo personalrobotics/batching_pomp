@@ -53,13 +53,13 @@ public:
   /// \param[in] _distanceFunction The ompl NearestNeighbours Distance Function to set 
   KNNModel(size_t _KNN, double _supportThreshold,
            double _prior, double _priorWeight,
-           std::function<double(const BeliefPoint&, const BeliefPoint&)> _distanceFunction)
+           const std::function<double(const BeliefPoint&, const BeliefPoint&)>& _distanceFunction)
   : mNumPoints{0}
   , mKNN{_KNN}
   , mSupportThreshold{_supportThreshold}
   , mPrior{_prior}
   , mPriorWeight{_priorWeight}
-  , mDistanceFunction{std::move(_distanceFunction)}
+  , mDistanceFunction{_distanceFunction}
   {
     //mBeliefPointNN = std::make_unique< ompl::NearestNeighborsGNAT<BeliefPoint> >();
     mBeliefPointNN.reset(new ompl::NearestNeighborsGNAT<BeliefPoint>());
@@ -145,7 +145,7 @@ private:
   double mSupportThreshold;
   double mPrior;
   double mPriorWeight;
-  std::unique_ptr<ompl::NearestNeighbors<BeliefPoint>> mBeliefPointNN;
+  std::unique_ptr<ompl::NearestNeighborsGNAT<BeliefPoint>> mBeliefPointNN;
   std::function<double(const BeliefPoint&, const BeliefPoint&)> mDistanceFunction;
 };
 

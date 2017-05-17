@@ -84,6 +84,7 @@ public:
   {
     double distance;
     double probFree;
+    int blockedStatus;
   };
 
   /// Graph definitions
@@ -120,7 +121,6 @@ public:
                double _decrement,
                double _startGoalRadius,
                double _checkRadius,
-               const std::string& _graphType,
                const std::string& _roadmapFileName);
 
   ~BatchingPOMP(void);
@@ -135,7 +135,9 @@ public:
   std::string getGraphType() const;
   void setGraphType(const std::string& _graphType);
   std::string getBatchingType() const;
-  void setGraphType(const std::string& _batchingType);
+  void setBatchingType(const std::string& _selectorType);
+  std::string getSelectorType() const;
+  void setSelectorType(const std::string& _selectorType);
   std::string getRoadmapFileName() const;
   void setRoadmapFileName(const std::string& _roadmapFileName);
 
@@ -153,6 +155,8 @@ private:
 
   /// Planning helpers
   std::unique_ptr<Selector<Graph>> mSelector;
+  std::unique_ptr<ompl::NearestNeighborsGNAT<BeliefPoint>> mVertexNN;
+  std::function<double(unsigned int)> mRadiusFun;
   BisectPerm mBisectPermObj;
   Vertex mStartVertex;
   Vertex mGoalVertex;
@@ -167,8 +171,9 @@ private:
   bool mIsPathFound;
   double mCheckRadius;
   double mBestCost;
-  std::string mGraphType;
+  std::string mGraphType; // Optional - to be used for non-CPP level calls
   std::string mBatchingType; // Optional - to be used for non-CPP level calls
+  std::string mSelectorType; // Optional - to be used for non-CPP level calls
   std::string mRoadmapName;
 
   /// For planner evaluation
@@ -177,7 +182,12 @@ private:
   unsigned int mNumSearches;
   double mLookupTime;
 
-
+  /// Private helper methods
+  double vertexDistFun(const Vertex& u, const Vertex& v) const;
+  double haltonRadiusFun(unsigned int n) const;
+  double rggRadiusFun(unsigned int n) const;
+  double computeAndSetEdgeFreeProbability(const Edge& e);
+  bool checkAndSetEdgeBlocked(const Edge& e);
 };
 
 
@@ -224,7 +234,7 @@ public:
   : mVertexNN{_vertexNN}
   , mCurrRadius{_currRadius}
   , mVThrow{_vThrow}
-  , mVertexDistFun{mVertexNN->getDistanceFunction()} {}
+  , mVertexDistFun{mVertexNN.getDistanceFunction()} {}
   inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
@@ -244,6 +254,7 @@ public:
       if(!edge(u,nbr,g).second){
         std::pair<Edge,bool> new_edge = add_edge(u,nbr,g);
         g[new_edge.first].distance = mVertexDistFun(source(new_edge,g), target(new_edge,g));
+        g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
       }
     }
   }

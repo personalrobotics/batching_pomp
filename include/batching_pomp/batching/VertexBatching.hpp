@@ -81,6 +81,11 @@ public:
     return mVertInflFactor;
   }
 
+  double getCurrentRadius() const
+  {
+    return std::numeric_limits<double>::max();
+  }
+
   //////////////////////////////////////////////////
   /// Overriden methods
   void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,

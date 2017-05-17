@@ -69,7 +69,7 @@ public:
       mSelectEdgeFnPtr = &selectEdgesMaxInf;
     }
     else {
-      throw std::invalid_argument("Invalid selector type specified!");
+      throw std::invalid_argument("Invalid selector type specified - "+mType+"!");
     }
   }
 
