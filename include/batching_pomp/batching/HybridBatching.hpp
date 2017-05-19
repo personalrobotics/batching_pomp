@@ -127,6 +127,11 @@ public:
 
   //////////////////////////////////////////////////
   /// Overriden methods
+  void updateWithNewSolutionCost(double _newSolnCost) override
+  {
+    mMaxRadius = std::min(mMaxRadius,_newSolnCost);
+  }
+
   void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {

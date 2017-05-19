@@ -105,6 +105,11 @@ public:
 
   //////////////////////////////////////////////////
   /// Overriden methods
+  void updateWithNewSolutionCost(double _newSolnCost) override
+  {
+    mMaxRadius = std::min(mMaxRadius,_newSolnCost);
+  }
+
   void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
@@ -123,7 +128,6 @@ public:
       std::vector<Vertex> vertex_vector(mNumVertices);
       size_t idx = 0;
 
-      /// TODO : This assumes ALL vertices will be admissible (vertex_vector full)
       for(boost::tie(vi,vi_end)=vertices(mFullRoadmap); vi!=vi_end; ++vi)
       {
         if(!_pruneFunction(mFullRoadmap[*vi])) {
@@ -132,9 +136,10 @@ public:
           vertex_vector[idx++] = newVertex;
         }
       }
-      if(idx != mNumVertices){
-        throw std::runtime_error("Not all vertices were admissible for edge batching!");
-      }
+
+      /// Truncate to actual number of samples
+      /// TODO : Make sure this works!
+      vertex_vector.resize(idx);
 
       _vertexNN.add(vertex_vector);  
     }

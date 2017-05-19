@@ -121,9 +121,8 @@ public:
 
   ~RoadmapFromFile() {}
 
-  void generate(Graph& _roadmap,
-                VStateMap _stateMap,
-                EDistance _distanceMap)
+  void generateVertices(Graph& _roadmap,
+                        VStateMap _stateMap)
   {
     std::ifstream fp;
     fp.open(mFilename.c_str());
@@ -133,16 +132,18 @@ public:
       RoadmapFromFilePutStateMap<VStateMap,StateCon>(_stateMap, mSpace, mDim));
 
     boost::read_graphml(fp, _roadmap, props);
+  }
 
-    /// Edges are in roadmap file if EDistance is not a default parameter
-    if(std::is_same<StateCon, EDistance>::value == false) {
-      EdgeIter ei, ei_end;
-      for (boost::tie(ei,ei_end)=edges(_roadmap); ei!=ei_end; ++ei)
-      {
-        ompl::base::State * state1 = get(_stateMap, source(*ei,_roadmap))->state;
-        ompl::base::State * state2 = get(_stateMap, target(*ei,_roadmap))->state;
-        put(_distanceMap, *ei, mSpace->distance(state1,state2));
-      }
+  void generateEdges(Graph& _roadmap,
+                     VStateMap _stateMap,
+                     EDistance _distanceMap)
+  {
+    EdgeIter ei, ei_end;
+    for (boost::tie(ei,ei_end)=edges(_roadmap); ei!=ei_end; ++ei)
+    {
+      ompl::base::State * state1 = get(_stateMap, source(*ei,_roadmap))->state;
+      ompl::base::State * state2 = get(_stateMap, target(*ei,_roadmap))->state;
+      put(_distanceMap, *ei, mSpace->distance(state1,state2));
     }
   }
 

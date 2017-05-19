@@ -32,6 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/properties.hpp>
+#include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <boost/graph/astar_search.hpp>
+#include <boost/graph/properties.hpp>
 
 #include <ompl/base/Planner.h>
 #include <ompl/base/StateSpace.h>
@@ -72,6 +75,7 @@ class BatchingPOMP : public ompl::base::Planner
   const static int FREE{1};
   const static int BLOCKED{-1};
   const static int UNKNOWN{0};
+  const static double PRUNETHRESOLD{1.1}; //Threshold of old-cost/new-cost beyond which pruning should be done
 
 public:
 
@@ -133,8 +137,8 @@ public:
   Vertex getGoalVertex() const;
   bool isInitSearchBatch();
   void setSearchInflationFactor(double _searchInflFactor);
-  double getDecrement() const;
-  void setDecrement(double _decrement);
+  double getIncrement() const;
+  void setIncrement(double _decrement);
   double getStartGoalRadius() const;
   void setStartGoalRadius(double _startGoalRadius);
   std::string getGraphType() const;
@@ -172,6 +176,7 @@ private:
   Vertex mGoalVertex;
   std::vector<Edge> mEdgesToUpdate;
   std::vector<Edge> mCurrBestPath;
+  AStarVisitor mSearchVisitor;
 
   /// Planner parameters
   double mCurrentAlpha;
@@ -197,8 +202,9 @@ private:
   double rggRadiusFun(unsigned int n) const;
   void updateAffectedEdgeWeights();
   void addAffectedEdges(const Edge& e);
-  bool isPathBlocked(const std::vector<Edge>& _ePath);
-  bool vertexPruneFunction(Vertex v) const;
+  bool checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath);
+  bool isVertexAdmissible(const Vertex& v)
+  bool vertexPruneFunction(const Vertex& v) const;
   double getPathDistance(const std::vector<Edge>& _ePath) const;
 };
 

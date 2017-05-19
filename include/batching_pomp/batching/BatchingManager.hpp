@@ -60,7 +60,25 @@ public:
     auto file_roadmap_ptr = std::make_shared<
       batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
       (_space,_roadmapFileName);
-    file_roadmap_ptr->generate(mFullRoadmap,_stateMap);
+    file_roadmap_ptr->generateVertices(mFullRoadmap,_stateMap);
+    mNumVertices = num_vertices(mFullRoadmap);
+  }
+
+  BatchingManager(const ompl::base::StateSpacePtr _space,
+                  VStateMap _stateMap,
+                  EDistance _distanceMap,
+                  std::string _roadmapFileName,
+                  Graph& _currentRoadmap)
+  : mCurrentRoadmap{_currentRoadmap}
+  , mNumBatches{0u}
+  , mExhausted{false}
+  , mCurrRadius{0.0}
+  {
+    auto file_roadmap_ptr = std::make_shared<
+      batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
+      (_space,_roadmapFileName);
+    file_roadmap_ptr->generateVertices(mFullRoadmap,_stateMap);
+    file_roadmap_ptr->generateEdges(mFullRoadmap,_stateMap,_distanceMap);
     mNumVertices = num_vertices(mFullRoadmap);
   }
 
@@ -99,6 +117,9 @@ public:
       }
     }
   }
+
+  /// Make any updates to batching manager with newest solution cost
+  virtual void updateWithNewSolutionCost(double _newSolnCost) = 0;
 
   /// Nearest neighbour member may be nullptr (for single batch case)
   virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction,

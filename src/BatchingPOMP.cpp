@@ -32,6 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/base/goals/GoalState.h>
 #include <ompl/base/goals/GoalStates.h>
 #include <ompl/geometric/PathGeometric.h>
+#include <ompl/util/GeometricEquations.h>
+#include <ompl/util/Console.h>
+#include <ompl/util/Exception.h>
 
 #include "batching_pomp/include/BatchingPOMP.hpp"
 
@@ -166,6 +169,11 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
       new batching_pomp::batching::HybridBatching<Graph,VPStateMap,StateCon>
         (mSpace, get(&VProps::v_state,g), mRoadmapName, g, initNumVertices, vertInflFactor, radiusInflFactor, mRadiusFun, maxRadius) );
   }
+  else if(mBatchingType == "single") {
+    mBatchingPtr.reset(
+      new batching_pomp::batching::SingleBatching<Graph,VPStateMap,StateCon,EPDistanceMap>
+       (mSpace, get(&VProps::v_state,g), get(&EProps::distance,g), mRoadmapName, g ) );
+  }
   else {
     throw std::runtime_error("Invalid batching type specified - "+mBatchingType+"!");
   }
@@ -194,6 +202,16 @@ double BatchingPOMP::getCurrentBestCost() const
   return mBestPathCost;
 }
 
+Vertex BatchingPOMP::getStartVertex() const
+{
+  return mStartVertex;
+}
+
+Vertex BatchingPOMP::getGoalVertex() const
+{
+  return mGoalVertex;
+}
+
 bool BatchingPOMP::isInitSearchBatch() const
 {
   return mIsInitSearchBatch;
@@ -219,15 +237,15 @@ void BatchingPOMP::setStartGoalRadius(double _startGoalRadius)
   mStartGoalRadius = _startGoalRadius;
 }
 
-double BatchingPOMP::getCheckRadius() const
-{
-  return mCheckRadius;
-}
+// double BatchingPOMP::getCheckRadius() const
+// {
+//   return mCheckRadius;
+// }
 
-void BatchingPOMP::setCheckRadius(double _checkRadius)
-{
-  mCheckRadius = _checkRadius;
-}
+// void BatchingPOMP::setCheckRadius(double _checkRadius)
+// {
+//   mCheckRadius = _checkRadius;
+// }
 
 std::string BatchingPOMP::getGraphType() const
 {
@@ -270,22 +288,10 @@ void BatchingPOMP::setRoadmapFileName(const std::string& _roadmapFileName)
 }
 
 
-/// Private helper methods
+/// Public helper methods
 double BatchingPOMP::vertexDistFun(const Vertex& u, const Vertex& v) const
 {
   return mSpace->distance(g[u].v_state->state, g[v].v_state->state);
-}
-
-double BatchingPOMP::haltonRadiusFun(unsigned int n) const
-{
-  auto dimDbl = static_cast<double>(mSpace->getDimension());
-  // TODO : Add the formula here
-}
-
-double BatchingPOMP::rggRadiusFun(unsigned int n) const
-{
-  auto dimDbl = static_cast<double>(mSpace->getDimension());
-  // TODO : Add the formula here
 }
 
 
@@ -371,6 +377,35 @@ bool checkAndSetEdgeBlocked(const Edge& e)
 }
 
 
+/// Private helper methods
+double BatchingPOMP::haltonRadiusFun(unsigned int n) const
+{
+  
+  auto dimDbl = static_cast<double>(mSpace->getDimension());
+  auto cardDbl = static_cast<double>(n);
+
+  return std::pow(1.0 / cardDbl, 1/ dimDbl);
+
+}
+
+double BatchingPOMP::rggRadiusFun(unsigned int n) const
+{
+  /// Lifted from BIT* - need to find a way to use directly
+  auto dimDbl = static_cast<double>(mSpace->getDimension());
+
+  double approximationMeasure{si_->getSpaceMeasure()};
+  if (!std::isfinite(approximationMeasure_)) {
+    throw ompl::Exception("Measure of space is unbounded!");
+  }
+
+  double minRggR{
+    2.0 * std::pow((1.0 + 1.0 / dimDbl) * (approximationMeasure_ / unitNBallMeasure(si_->getStateDimension())), 1.0/dimDbl)};
+
+  auto cardDbl = static_cast<double>(n);
+
+  return minRggR * std::pow(std::log(cardDbl) / cardDbl, 1 / dimDbl);
+}
+
 void BatchingPOMP::updateAffectedEdgeWeights()
 {
   for(auto e : mEdgesToUpdate)
@@ -384,13 +419,68 @@ void BatchingPOMP::updateAffectedEdgeWeights()
 }
 
 
-void BatchingPOMP::addAffectedEdges()
+void BatchingPOMP::addAffectedEdges(const Edge& e)
 {
+  // TODO : Change this to be based on model radius (and what edges are currently in there)
+  // I.E you'll want to lookup mVertexNN and add edge if it exists
+
+  /// For now, just add all out_edges and out_edges from neigbours
+  Vertex u{source(e,g)};
+  Vertex v{target(e,g)};
+
+  OutEdgeIter ei;
+  OutEdgeIter ei_end;
+
+  for(boost::tie(ei,ei_end)=out_edges(u,g); ei!=ei_end; ++ei)
+  {
+    if(g[*ei].blockedStatus == BatchingPOMP::UNKNOWN) {
+
+      /// Add edge if not already there
+      if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei) != mEdgesToUpdate.end()) {
+        mEdgesToUpdate.push_back(*ei);
+      }
+
+      Vertex nbr = target(*ei,g);
+      OutEdgeIter ei_in,ei_in_end;
+
+      for(boost::tie(ei_in,ei_in_end)=out_edges(nbr,g); ei_in!=ei_in_end; ++ei)
+      {
+        Vertex nbr_nbr = target(*ei_in,g);
+        if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei_in) != mEdgesToUpdate.end()) {
+          mEdgesToUpdate.push_back(*ei_in);
+        }
+      }
+
+    }
+  }
+
+  /// Do the same for target
+  for(boost::tie(ei,ei_end)=out_edges(v,g); ei!=ei_end; ++ei)
+  {
+    if(g[*ei].blockedStatus == BatchingPOMP::UNKNOWN) {
+      /// Add edge if not already there
+      if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei) != mEdgesToUpdate.end()) {
+        mEdgesToUpdate.push_back(*ei);
+      }
+
+      Vertex nbr = target(*ei,g);
+      OutEdgeIter ei_in,ei_in_end;
+
+      for(boost::tie(ei_in,ei_in_end)=out_edges(nbr,g); ei_in!=ei_in_end; ++ei)
+      {
+        Vertex nbr_nbr = target(*ei_in,g);
+        if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei_in) != mEdgesToUpdate.end()) {
+          mEdgesToUpdate.push_back(*ei_in);
+        }
+      }
+
+    }
+  }
 
 }
 
 
-bool BatchingPOMP::isPathBlocked(const std::vector<Edge>& _ePath)
+bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
 {
   std::vector<Edge> selectedEPath = mSelector->selectEdges(g,_ePath);
 
@@ -407,15 +497,19 @@ bool BatchingPOMP::isPathBlocked(const std::vector<Edge>& _ePath)
 }
 
 
-bool BatchingPOMP::isVertexAdmissible(Vertex v)
+bool BatchingPOMP::isVertexAdmissible(const Vertex& v) const
 {
+  if(mBestPathCost == std::numeric_limits<double>::max()) {
+    return true;
+  }
+
   double bestCostThroughVertex{vertexDistFun(mStartVertex,v) + vertexDistFun(v,mGoalVertex)};
 
   return (bestCostThroughVertex < mBestPathCost);
 }
 
 
-bool BatchingPOMP::vertexPruneFunction(Vertex v)
+bool BatchingPOMP::vertexPruneFunction(const Vertex& v) const
 {
   auto validityChecker = si_->getStateValidityChecker();
 
@@ -423,7 +517,7 @@ bool BatchingPOMP::vertexPruneFunction(Vertex v)
 
 }
 
-double getPathDistance(const std::vector<Edge>& _ePath)
+double getPathDistance(const std::vector<Edge>& _ePath) const
 {
   double pathDistance{0.0};
   for(auto e : _ePath)
@@ -533,22 +627,43 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
 
       mIsInitSearchBatch = false; // Either way, make it false
 
-      boost::astar_search(
-        g,
-        mStartVertex,
-        *heuristicFn,
-        neighbours_visitor(*this, *mVertexNN, mBatchingPtr->getCurrentRadius(), mGoalVertex),
-        boost::make_assoc_property_map(startPreds),
-        boost::make_assoc_property_map(startFValue),
-        boost::make_assoc_property_map(startDist),
-        wm,
-        boost::get(boost::vertex_index, g),
-        boost::make_assoc_property_map(colorMap),
-        std::less<double>(),
-        boost::closed_plus<double>(std::numeric_limits<double>::max()),
-        std::numeric_limits<double>::max(),
-        double()
-      );
+      /// TODO : Find a less hacky way to do this
+      if(mBatchingType == "single") {
+        boost::astar_search(
+          g,
+          mStartVertex,
+          *heuristicFn,
+          throw_visitor(mGoalVertex),
+          boost::make_assoc_property_map(startPreds),
+          boost::make_assoc_property_map(startFValue),
+          boost::make_assoc_property_map(startDist),
+          wm,
+          boost::get(boost::vertex_index, g),
+          boost::make_assoc_property_map(colorMap),
+          std::less<double>(),
+          boost::closed_plus<double>(std::numeric_limits<double>::max()),
+          std::numeric_limits<double>::max(),
+          double()
+        );
+      }
+      else {
+        boost::astar_search(
+          g,
+          mStartVertex,
+          *heuristicFn,
+          neighbours_visitor(*this, *mVertexNN, mBatchingPtr->getCurrentRadius(), mGoalVertex),
+          boost::make_assoc_property_map(startPreds),
+          boost::make_assoc_property_map(startFValue),
+          boost::make_assoc_property_map(startDist),
+          wm,
+          boost::get(boost::vertex_index, g),
+          boost::make_assoc_property_map(colorMap),
+          std::less<double>(),
+          boost::closed_plus<double>(std::numeric_limits<double>::max()),
+          std::numeric_limits<double>::max(),
+          double()
+        );
+      }
     }
     catch (const throw_visitor_exception & ex)
     {
@@ -576,7 +691,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       Vertex vPred{startPreds[vWalk]};
       std::pair<Edge, bool> edgePair{boost::edge(vPred, vWalk, g)};
       if(!edgePair.second) {
-        throw std::runtime_error("Error! Edge present during search no longer exists in graph!");
+        throw ompl::Exception("Error! Edge present during search no longer exists in graph!");
       }
       ePath.push_back(edgePair.first);
       vWalk = vPred;
@@ -585,7 +700,9 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     std::reverse(ePath.begin(), ePath.end());
 
     /// If path is free, set current cost to it, increment alpha
-    if(!isPathBlocked(ePath)) {
+    bool pathBlocked{checkAndUpdatePathBlocked(ePath)};
+
+    if(!pathBlocked) {
       mIsPathfound = true;
       currSolnCost = getPathDistance(ePath);
 
@@ -596,10 +713,14 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
         mCurrentAlpha = std::min(mCurrentAlpha+mIncrement, 1.0);
       }
     }
+
+    /// Path has been checked either way so update
+    updateAffectedEdgeWeights();
   }
 
 
   /// Has found an improved feasible solution -> now report
+  double improvementFactor{mBestPathCost/currSolnCost};
   mBestPathCost = currSolnCost;
   mCurrBestPath = ePath;
 
@@ -615,11 +736,15 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
 
   pdef_->addSolutionPath(ompl::base::PathPtr(path));
 
-  // TODO : PRUNE
+  /// Prune vertices using current solution cost if sufficiently improved
+  if(improvementFactor > BatchingPOMP::PRUNETHRESHOLD) {
+    std::function<bool(Vertex)> admissibleFunction = 
+        std::bind(&BatchingPOMP::isVertexAdmissible, &BatchingPOMP,std::placeholders::_1);
+    mBatchingPtr->pruneVertices(admissibleFunction);
+  }
 
   return ompl::base::PlannerStatus::APPROXIMATE_SOLUTION;
 
-  
 }
 
 
