@@ -199,7 +199,7 @@ private:
   void addAffectedEdges(const Edge& e);
   bool isPathBlocked(const std::vector<Edge>& _ePath);
   bool vertexPruneFunction(Vertex v) const;
-  double getPathDistance(const std::vector<Edge>& _ePath);
+  double getPathDistance(const std::vector<Edge>& _ePath) const;
 };
 
 
