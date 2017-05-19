@@ -51,6 +51,7 @@ using BatchingManager<Graph, VStateMap, StateCon>::mCurrentRoadmap;
 using BatchingManager<Graph, VStateMap, StateCon>::mNumBatches;
 using BatchingManager<Graph, VStateMap, StateCon>::mNumVertices;
 using BatchingManager<Graph, VStateMap, StateCon>::mExhausted;
+using BatchingManager<Graph, VStateMap, StateCon>::mCurrRadius;
 
 public:
 
@@ -92,16 +93,6 @@ public:
     return mInitRadius;
   }
 
-  void setCurrentRadius(double _currentRadius)
-  {
-    mCurrRadius = _currentRadius;
-  }
-
-  double getCurrentRadius() const
-  {
-    return mCurrRadius;
-  }
-
   void setMaxRadius(double _maxRadius)
   {
     mMaxRadius = _maxRadius;
@@ -115,16 +106,12 @@ public:
   //////////////////////////////////////////////////
   /// Overriden methods
   void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
-                 ompl::NearestNeighbors<Vertex>* _vertexNN) override
+                 ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
 
     if(mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
       return;
-    }
-
-    if(!_vertexNN){
-      throw std::runtime_error("Nearest neighbour structure pointer is empty!");
     }
 
     OMPL_INFORM("New Edge Batch called!");
@@ -139,7 +126,7 @@ public:
       /// TODO : This assumes ALL vertices will be admissible (vertex_vector full)
       for(boost::tie(vi,vi_end)=vertices(mFullRoadmap); vi!=vi_end; ++vi)
       {
-        if(_pruneFunction(mFullRoadmap[*vi])) {
+        if(!_pruneFunction(mFullRoadmap[*vi])) {
           Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
           mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*vi].v_state;
           vertex_vector[idx++] = newVertex;
@@ -149,7 +136,7 @@ public:
         throw std::runtime_error("Not all vertices were admissible for edge batching!");
       }
 
-      _vertexNN->add(vertex_vector);  
+      _vertexNN.add(vertex_vector);  
     }
     else {
       mCurrRadius = mCurrRadius * mRadiusInflFactor;
@@ -168,7 +155,6 @@ private:
 
   double mRadiusInflFactor;
   double mInitRadius;
-  double mCurrRadius;
   double mMaxRadius;
 
 

@@ -55,6 +55,7 @@ public:
   : mCurrentRoadmap{_currentRoadmap}
   , mNumBatches{0u}
   , mExhausted{false}
+  , mCurrRadius{0.0}
   {
     auto file_roadmap_ptr = std::make_shared<
       batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
@@ -79,6 +80,11 @@ public:
   {
     return mExhausted;
   }
+
+  double getCurrentRadius() const
+  {
+    return mCurrRadius;
+  }
   
   void pruneVertices(std::function<bool(Vertex)>& _pruneFunction)
   {
@@ -96,7 +102,7 @@ public:
 
   /// Nearest neighbour member may be nullptr (for single batch case)
   virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction,
-                         ompl::NearestNeighbors<Vertex>* _vertexNN) = 0;
+                         ompl::NearestNeighbors<Vertex>& _vertexNN) = 0;
 
 
 protected:
@@ -107,6 +113,7 @@ protected:
   unsigned int mNumBatches;
   unsigned int mNumVertices;
   bool mExhausted;
+  double mCurrRadius;
 
 };
 

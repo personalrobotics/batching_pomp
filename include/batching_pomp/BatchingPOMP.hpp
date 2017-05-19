@@ -99,6 +99,7 @@ public:
   typedef boost::property_map<Graph, StateConPtr VProps::*>::type VPStateMap;
   typedef boost::property_map<Graph, double EProps::*>::type EPDistanceMap;
   typedef boost::property_map<Graph, boost::vertex_index_t>::type VertexIndexMap;
+  typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
 
   /// Public variables for the planner
   const ompl::base::StateSpacePtr mSpace;
@@ -126,7 +127,11 @@ public:
   ~BatchingPOMP(void);
 
   /// Setters and Getters
-  double getSearchInflationFactor() const;
+  double getCurrentAlpha() const;
+  double getCurrentBestCost() const;
+  Vertex getStartVertex() const;
+  Vertex getGoalVertex() const;
+  bool isInitSearchBatch();
   void setSearchInflationFactor(double _searchInflFactor);
   double getDecrement() const;
   void setDecrement(double _decrement);
@@ -151,6 +156,11 @@ public:
   void setProblemDefinition(const ompl::base::ProblemDefinitionPtr & pdef);
   ompl::base::PlannerStatus solve(const ompl::base::PlannerTerminationCondition & ptc);
 
+  /// Public helper methods
+  double computeAndSetEdgeFreeProbability(const Edge& e);
+  bool checkAndSetEdgeBlocked(const Edge& e);
+  double vertexDistFun(const Vertex& u, const Vertex& v) const;
+
 private:
 
   /// Planning helpers
@@ -164,13 +174,13 @@ private:
   std::vector<Edge> mCurrBestPath;
 
   /// Planner parameters
-  double mSearchInflationFactor;
-  double mDecrement;
+  double mCurrentAlpha;
+  double mIncrement;
   double mStartGoalRadius;
   bool mIsInitSearchBatch;
   bool mIsPathFound;
   double mCheckRadius;
-  double mBestCost;
+  double mBestPathCost;
   std::string mGraphType; // Optional - to be used for non-CPP level calls
   std::string mBatchingType; // Optional - to be used for non-CPP level calls
   std::string mSelectorType; // Optional - to be used for non-CPP level calls
@@ -183,11 +193,13 @@ private:
   double mLookupTime;
 
   /// Private helper methods
-  double vertexDistFun(const Vertex& u, const Vertex& v) const;
   double haltonRadiusFun(unsigned int n) const;
   double rggRadiusFun(unsigned int n) const;
-  double computeAndSetEdgeFreeProbability(const Edge& e);
-  bool checkAndSetEdgeBlocked(const Edge& e);
+  void updateAffectedEdgeWeights();
+  void addAffectedEdges(const Edge& e);
+  bool isPathBlocked(const std::vector<Edge>& _ePath);
+  bool vertexPruneFunction(Vertex v) const;
+  double getPathDistance(const std::vector<Edge>& _ePath);
 };
 
 
@@ -223,15 +235,18 @@ public:
 class neighbours_visitor
 {
 public:
+  BatchingPOMP& mPlanner;
   ompl::NearestNeighbors<BatchingPOMP::Vertex>& mVertexNN;
   double mCurrRadius;
   std::function<double(const BatchingPOMP::Vertex&, const BatchingPOMP::Vertex&)> mVertexDistFun;
   BatchingPOMP::Vertex mVThrow;
 
-  neighbours_visitor(ompl::NearestNeighbors<BatchingPOMP::Vertex>& _vertexNN, 
+  neighbours_visitor(BatchingPOMP& _planner,
+                     ompl::NearestNeighbors<BatchingPOMP::Vertex>& _vertexNN, 
                      double _currRadius,
                      BatchingPOMP::Vertex _vThrow)
-  : mVertexNN{_vertexNN}
+  : mPlanner{_planner}
+  , mVertexNN{_vertexNN}
   , mCurrRadius{_currRadius}
   , mVThrow{_vThrow}
   , mVertexDistFun{mVertexNN.getDistanceFunction()} {}
@@ -255,6 +270,7 @@ public:
         std::pair<Edge,bool> new_edge = add_edge(u,nbr,g);
         g[new_edge.first].distance = mVertexDistFun(source(new_edge,g), target(new_edge,g));
         g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
+        mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
       }
     }
   }
@@ -266,12 +282,12 @@ public:
 };
 
 /// Weight map for expected edge cost
-class EdgeWeightMap
+class ExpWeightMap
 {
 public:
 
-  BatchingPOMP& mPlanner;
-  EdgeWeightMap(BatchingPOMP& _planner)
+  const BatchingPOMP& mPlanner;
+  EdgeWeightMap(const BatchingPOMP& _planner)
   : mPlanner{_planner} {}
 };
 
@@ -285,10 +301,11 @@ const double get(const EdgeWeightMap& _ewMap, const BatchingPOMP::Edge& e)
     return _ewMap.mPlanner.g[e].distance;
   }
 
-  double infl_factor{_ewMap.mPlanner.getInflationFactor()};
-  double rho{_ewMap.mPlanner.g[e].probFree};
-  double distance{dmap.pm_planner.g[e].distance};
-  double exp_cost = distance*(rho + infl_factor*(1-rho));
+  double alpha{_ewMap.mPlanner->getCurrentAlpha()};
+  double w_m{-std::log(_ewMap.mPlanner.g[e].probFree)};
+  double w_l{dmap.pm_planner.g[e].distance};
+
+  double exp_cost{alpha*w_l + (1-alpha)*w_m};
 
   return exp_cost;
 }
@@ -298,7 +315,7 @@ class LogProbMap
 {
 public:
 
-  BatchingPOMP& mPlanner;
+  const BatchingPOMP& mPlanner;
   LogProbMap(BatchingPOMP& _planner)
   : mPlanner{_planner} {}
 };
@@ -318,26 +335,31 @@ const double get(const LogProbMap& _ewMap, const BatchingPOMP::Edge& e)
 
 /// Euclidean distance heuristic for A-star search
 template<class Graph, class CostType>
-class distance_heuristic : public boost::astar_heuristic<Graph, CostType>
+class exp_distance_heuristic : public boost::astar_heuristic<Graph, CostType>
 {
 public:
-  distance_heuristic(const ompl::base::StateSpacePtr _space,
-                     batching_pomp::BatchingPOMP::VPStateMap _vsm,
-                     batching_pomp::BatchingPOMP::Vertex goal)
-  : mSpace{_space}
-  , m_vsm{_vsm}
-  , mGoal{goal}{}
+  exp_distance_heuristic(const BatchingPOMP& _planner)
+  : mPlanner{_planner}
 
   CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
   {
-    return mSpace->distance(m_vsm[mGoal]->state, m_vsm[u]->state);
+    return mPlanner->getCurrentAlpha() * mPlanner.vertexDistFun(u, mPlanner->getGoalVertex());
   }
 
 private:
-  const ompl::base::StateSpacePtr mSpace;
-  batching_pomp::BatchingPOMP::VPStateMap m_vsm;
-  batching_pomp::BatchingPOMP::Vertex mGoal;
+  const BatchingPOMP& mPlanner;
+};
 
+template<class Graph, class CostType>
+class zero_heuristic : public boost::astar_heuristic<Graph, CostType>
+{
+public:
+  zero_heuristic(){}
+
+  CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
+  {
+    return 0.0;
+  }
 };
 
 

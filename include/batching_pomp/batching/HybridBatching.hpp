@@ -50,6 +50,7 @@ using BatchingManager<Graph, VStateMap, StateCon>::mCurrentRoadmap;
 using BatchingManager<Graph, VStateMap, StateCon>::mNumBatches;
 using BatchingManager<Graph, VStateMap, StateCon>::mNumVertices;
 using BatchingManager<Graph, VStateMap, StateCon>::mExhausted;
+using BatchingManager<Graph, VStateMap, StateCon>::mCurrRadius;
 
 public:
 
@@ -69,11 +70,11 @@ public:
   , mVertInflFactor{_vertInflFactor}
   , mRadiusInflFactor{_radiusInflFactor}
   , mInitRadius{_initRadiusFn(_initNumVertices)}
-  , mCurrRadius{mInitRadius}
   , mMaxRadius{_maxRadius}
   , mEdgeBatchingMode{false}
   , mRadiusFn{std::move(_initRadiusFn)}
   {
+    mCurrRadius = mInitRadius;
     boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
   }
 
@@ -109,16 +110,6 @@ public:
     return mInitRadius;
   }
 
-  void setCurrentRadius(double _currentRadius)
-  {
-    mCurrRadius = _currentRadius;
-  }
-
-  double getCurrentRadius() const
-  {
-    return mCurrRadius;
-  }
-
   void setMaxRadius(double _maxRadius)
   {
     mMaxRadius = _maxRadius;
@@ -137,16 +128,12 @@ public:
   //////////////////////////////////////////////////
   /// Overriden methods
   void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
-                 ompl::NearestNeighbors<Vertex>* _vertexNN) override
+                 ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
 
     if(mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
       return;
-    }
-
-    if(!_vertexNN){
-      throw std::runtime_error("Nearest neighbour structure pointer is empty!");
     }
 
     OMPL_INFORM("New Hybrid Batch called!");
@@ -159,7 +146,7 @@ public:
       while(mNumVerticesAdded < mNextVertexTarget)
       {
 
-        if(_pruneFunction(mFullRoadmap[*mCurrVertex])) {
+        if(!_pruneFunction(mFullRoadmap[*mCurrVertex])) {
           Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
           mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
           vertex_vector.push_back(newVertex);
@@ -176,12 +163,12 @@ public:
       }
 
       if(vertex_vector.size()>0) {
-        _vertexNN->add(vertex_vector);
+        _vertexNN.add(vertex_vector);
       }
       
-      mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
-
       mCurrRadius = mRadiusFn(mNextVertexTarget);
+
+      mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
     }
     else
     {
@@ -205,7 +192,6 @@ private:
 
   double mRadiusInflFactor;
   double mInitRadius;
-  double mCurrRadius;
   double mMaxRadius;
 
   VertexIter mCurrVertex;

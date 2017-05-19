@@ -61,7 +61,6 @@ public:
   , mPriorWeight{_priorWeight}
   , mDistanceFunction{_distanceFunction}
   {
-    //mBeliefPointNN = std::make_unique< ompl::NearestNeighborsGNAT<BeliefPoint> >();
     mBeliefPointNN.reset(new ompl::NearestNeighborsGNAT<BeliefPoint>());
     mBeliefPointNN->setDistanceFunction(mDistanceFunction);
   }

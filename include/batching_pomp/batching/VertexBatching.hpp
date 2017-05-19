@@ -50,6 +50,7 @@ using BatchingManager<Graph, VStateMap, StateCon>::mCurrentRoadmap;
 using BatchingManager<Graph, VStateMap, StateCon>::mNumBatches;
 using BatchingManager<Graph, VStateMap, StateCon>::mNumVertices;
 using BatchingManager<Graph, VStateMap, StateCon>::mExhausted;
+using BatchingManager<Graph, VStateMap, StateCon>::mCurrRadius;
 
 public:
 
@@ -66,6 +67,7 @@ public:
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
   {
+    mCurrRadius = std::numeric_limits<double>::max();
     boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
   }
 
@@ -81,24 +83,15 @@ public:
     return mVertInflFactor;
   }
 
-  double getCurrentRadius() const
-  {
-    return std::numeric_limits<double>::max();
-  }
-
   //////////////////////////////////////////////////
   /// Overriden methods
   void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
-                 ompl::NearestNeighbors<Vertex>* _vertexNN) override
+                 ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
 
     if(mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
       return;
-    }
-
-    if(!_vertexNN){
-      throw std::runtime_error("Nearest neighbour structure pointer is empty!");
     }
 
     OMPL_INFORM("New Vertex Batch called!");
@@ -110,7 +103,7 @@ public:
     {
 
       /// Only add if best cost through vertex better than current solution
-      if(_pruneFunction(mFullRoadmap[*mCurrVertex])) {
+      if(!_pruneFunction(mFullRoadmap[*mCurrVertex])) {
         Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
         mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
         vertex_vector.push_back(newVertex);
@@ -128,7 +121,7 @@ public:
 
     /// Update nearest neighbour structure with vertices
     if(vertex_vector.size() > 0) {
-      _vertexNN->add(vertex_vector);
+      _vertexNN.add(vertex_vector);
     }
 
     /// Update size of next subgraph
