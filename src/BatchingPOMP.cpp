@@ -36,31 +36,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/util/Console.h>
 #include <ompl/util/Exception.h>
 
-#include "batching_pomp/include/BatchingPOMP.hpp"
+#include "batching_pomp/BatchingPOMP.hpp"
 
 namespace batching_pomp{
 
 using batching_pomp::cspacebelief::BeliefPoint;
 
+
 /// Default constructor for CPP-level usage
 BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
-                           std::unique_ptr< BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
-                           std::unique_ptr< Model<BeliefPoint> > _beliefModel,
-                           std::unique_ptr< Selector<Graph> > _selector,
+                           std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
+                           std::shared_ptr< cspacebelief::Model<BeliefPoint> > _beliefModel,
+                           std::unique_ptr< util::Selector<Graph> > _selector,
                            double _increment,
                            double _startGoalRadius,
+                           double _pruneThreshold,
                            const std::string& _roadmapFileName)
 : ompl::base::Planner(si,"BatchingPOMP")
-, mSpace(si->getStateSpace()),
-, mBatchingPtr{std::move(_batchingPtr)}
-, mBeliefModel{std::move(_beliefModel)}
+, mSpace(si->getStateSpace())
+, mBatchingPtr{_batchingPtr}
+, mBeliefModel{_beliefModel}
 , mSelector{std::move(_selector)}
 , mCurrentAlpha{0.0}
 , mIncrement{_increment}
 , mStartGoalRadius{_startGoalRadius}
+, mPruneThreshold{_pruneThreshold}
 , mIsInitSearchBatch{true}
-, mIsPathfound{false}
-, mCheckRadius{0.5*space->getLongestValidSegmentLength()}
+, mIsPathFound{false}
+, mCheckRadius{0.5*mSpace->getLongestValidSegmentLength()}
 , mBestPathCost{std::numeric_limits<double>::max()}
 , mGraphType{""}
 , mBatchingType{""}
@@ -73,7 +76,14 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 {
   /// Create vertex nearest neighbour manager
   mVertexNN.reset(new ompl::NearestNeighborsGNAT<Vertex>());
-  mVertexNN->setDistanceFunction(vertexDistFun);
+
+  ompl::NearestNeighbors<Vertex>::DistanceFunction distfun(
+    [this](const Vertex& a, const Vertex& b)
+    {
+      return vertexDistFun(a,b);
+    });
+
+  mVertexNN->setDistanceFunction(distfun);
 }
 
 /// Pure OMPL constructor using parameters
@@ -85,9 +95,10 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
 , mCurrentAlpha{0.0}
 , mIncrement{0.0}
 , mStartGoalRadius{0.0}
+, mPruneThreshold{DEFAULTPRUNETHRESHOLD}
 , mIsInitSearchBatch{true}
-, mIsPathfound{false}
-, mCheckRadius{0.5*space->getLongestValidSegmentLength()}
+, mIsPathFound{false}
+, mCheckRadius{0.5*mSpace->getLongestValidSegmentLength()}
 , mBestPathCost{std::numeric_limits<double>::max()}
 , mGraphType{""}
 , mBatchingType{""}
@@ -101,20 +112,27 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
   /// Bind distance functions for model manager
   std::function<double(const ompl::base::State*, const ompl::base::State*)>
     spaceDistFun = std::bind(&ompl::base::RealVectorStateSpace::distance,
-                  space->as<ompl::base::RealVectorStateSpace>(),std::placeholders::_1,std::placeholders::_2);
+                  mSpace->as<ompl::base::RealVectorStateSpace>(),std::placeholders::_1,std::placeholders::_2);
   std::function<double(const BeliefPoint& bp1, const BeliefPoint& bp2)>
     bpDistFun = std::bind(batching_pomp::cspacebelief::beliefDistanceFunction,spaceDistFun,std::placeholders::_1,std::placeholders::_2);
 
   /// Create model manager with default parameters
-  mBeliefModel.reset(new batching_pomp::cspacebelief::KNNModel(15,2.0,0.5,0.25,bpDistFun));
+  mBeliefModel.reset(new cspacebelief::KNNModel(15,2.0,0.5,0.25,bpDistFun));
 
   /// Create vertex nearest neighbour manager
   mVertexNN.reset(new ompl::NearestNeighborsGNAT<Vertex>());
-  mVertexNN->setDistanceFunction(vertexDistFun);
+  ompl::NearestNeighbors<Vertex>::DistanceFunction distfun(
+    [this](const Vertex& a, const Vertex& b)
+    {
+      return vertexDistFun(a,b);
+    });
+
+  mVertexNN->setDistanceFunction(distfun);
 
   /// Define OMPL parameters
   Planner::declareParam<double>("increment", this, &BatchingPOMP::setIncrement, &BatchingPOMP::getIncrement);
   Planner::declareParam<double>("start_goal_radius", this, &BatchingPOMP::setStartGoalRadius, &BatchingPOMP::getStartGoalRadius);
+  Planner::declareParam<double>("prune_threshold", this, &BatchingPOMP::setPruneThreshold, &BatchingPOMP::getPruneThreshold);
   Planner::declareParam<std::string>("graph_type", this, &BatchingPOMP::setGraphType, &BatchingPOMP::getGraphType);
   Planner::declareParam<std::string>("batching_type", this, &BatchingPOMP::setBatchingType, &BatchingPOMP::getBatchingType);
   Planner::declareParam<std::string>("selector_type", this, &BatchingPOMP::setSelectorType, &BatchingPOMP::getSelectorType);
@@ -123,66 +141,91 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
   /// Create objects that depend on parameters
 
   /// Radius function type for Edge or Hybrid Batching
-  if(mGraphType == "" && (mBatchingType=="edge" || mBatchingType=="hybrid")) {
-    throw std::runtime_error("Need a graph type to get radius function!");
-  }
   if(mGraphType == "halton") {
-    mRadiusFun = haltonRadiusFun;
+    // std::function<double(unsigned int)> thisHaltonRFn(
+    //   [this](unsigned int n)
+    //   {
+    //     return haltonRadiusFun(n);
+    //   });
+    //mRadiusFun = thisHaltonRFn;
+    mRadiusFun = std::bind(&BatchingPOMP::haltonRadiusFun,this,std::placeholders::_1);
   }
   else if (mGraphType == "rgg") {
-    mRadiusFun = rggRadiusFun;
+    // std::function<double(unsigned int)> thisRggRFn(
+    //   [this](unsigned int n)
+    //   {
+    //     return rggRadiusFun(n);
+    //   });
+    mRadiusFun = std::bind(&BatchingPOMP::rggRadiusFun,this,std::placeholders::_1);
   }
   else{
-    throw std::invalid_argument("Invalid graph type specified - "+mGraphType+"!");
+    if(mBatchingType=="edge" || mBatchingType=="hybrid") {
+      throw ompl::Exception("Invalid graph type specified! Graph type needed for hybrid or edge batching!");
+    }
   }
 
   if(mRoadmapName == "") {
-    throw std::runtime_error("Roadmap name must be set before creating batching manager!");
+    throw ompl::Exception("Roadmap name must be set before creating batching manager!");
   }
 
   /// Now create batching pointer with default parameters
   if(mBatchingType == "vertex") {
-    unsigned int initNumVertices = 100u;
-    double vertInflFactor = 2.0;
+    unsigned int initNumVertices{100u};
+    double vertInflFactor{2.0};
     
-    mBatchingPtr.reset(
-      new batching_pomp::batching::VertexBatching<Graph,VPStateMap,StateCon>
-        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, initNumVertices, vertInflFactor) );
+    std::shared_ptr<batching::VertexBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> vbp 
+       = std::make_shared<batching::VertexBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
+        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, initNumVertices, vertInflFactor);
+
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+                  (std::move(vbp));
   }
   else if(mBatchingType == "edge") {
     auto dimDbl = static_cast<double>(mSpace->getDimension());
-    double radiusInflFactor = std::pow(2.0,1/dimDbl);
-    double maxRadius = mSpace->getMaximumExtent();
+    double radiusInflFactor{std::pow(2.0,1/dimDbl)};
+    double maxRadius{mSpace->getMaximumExtent()};
+
+    std::shared_ptr<batching::EdgeBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> ebp
+      = std::make_shared<batching::EdgeBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
+        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, radiusInflFactor, mRadiusFun, maxRadius);
     
-    mBatchingPtr.reset(
-      new batching_pomp::batching::EdgeBatching<Graph,VPStateMap,StateCon>
-        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, radiusInflFactor, mRadiusFun, maxRadius) );
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+                  (std::move(ebp));
   }
   else if(mBatchingType == "hybrid") {
-    unsigned int initNumVertices = 100u;
-    double vertInflFactor = 2.0;
+    unsigned int initNumVertices{100u};
+    double vertInflFactor{2.0};
     auto dimDbl = static_cast<double>(mSpace->getDimension());
-    double radiusInflFactor = std::pow(2.0,1/dimDbl);
-    double maxRadius = mSpace->getMaximumExtent();
+    double radiusInflFactor{std::pow(2.0,1/dimDbl)};
+    double maxRadius{mSpace->getMaximumExtent()};
 
-    mBatchingPtr.reset(
-      new batching_pomp::batching::HybridBatching<Graph,VPStateMap,StateCon>
-        (mSpace, get(&VProps::v_state,g), mRoadmapName, g, initNumVertices, vertInflFactor, radiusInflFactor, mRadiusFun, maxRadius) );
+    std::shared_ptr<batching::HybridBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> hbp
+     = std::make_shared<batching::HybridBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
+       (mSpace, get(&VProps::v_state,g), mRoadmapName, g, initNumVertices, vertInflFactor, radiusInflFactor, mRadiusFun, maxRadius);
+
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+                  (std::move(hbp));
+
   }
   else if(mBatchingType == "single") {
-    mBatchingPtr.reset(
-      new batching_pomp::batching::SingleBatching<Graph,VPStateMap,StateCon,EPDistanceMap>
-       (mSpace, get(&VProps::v_state,g), get(&EProps::distance,g), mRoadmapName, g ) );
+
+    std::shared_ptr<batching::SingleBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> sbp 
+     = std::make_shared<batching::SingleBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
+        (mSpace, get(&VProps::v_state,g), get(&EProps::distance,g), mRoadmapName, g);
+    
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+                  (std::move(sbp));
+    
   }
   else {
-    throw std::runtime_error("Invalid batching type specified - "+mBatchingType+"!");
+    throw ompl::Exception("Invalid batching type specified - "+mBatchingType+"!");
   }
 
   /// Create selector with the type specified
-  if(mSelector == "") {
-    throw std::runtime_error("Selector type must be set before creation");
+  if(mSelectorType == "") {
+    throw ompl::Exception("Selector type must be set before creation");
   }
-  mSelector.reset(new batching_pomp::util::Selector(mSelectorType));
+  mSelector.reset(new batching_pomp::util::Selector<Graph>(mSelectorType));
 }
 
 
@@ -202,12 +245,12 @@ double BatchingPOMP::getCurrentBestCost() const
   return mBestPathCost;
 }
 
-Vertex BatchingPOMP::getStartVertex() const
+BatchingPOMP::Vertex BatchingPOMP::getStartVertex() const
 {
   return mStartVertex;
 }
 
-Vertex BatchingPOMP::getGoalVertex() const
+BatchingPOMP::Vertex BatchingPOMP::getGoalVertex() const
 {
   return mGoalVertex;
 }
@@ -235,6 +278,16 @@ double BatchingPOMP::getStartGoalRadius() const
 void BatchingPOMP::setStartGoalRadius(double _startGoalRadius)
 {
   mStartGoalRadius = _startGoalRadius;
+}
+
+double BatchingPOMP::getPruneThreshold() const
+{
+  return mPruneThreshold;
+}
+
+void BatchingPOMP::setPruneThreshold(double _pruneThreshold)
+{
+  mPruneThreshold = _pruneThreshold;
 }
 
 // double BatchingPOMP::getCheckRadius() const
@@ -303,7 +356,7 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
   auto startState = g[source(e,g)].v_state->state;
   auto endState = g[target(e,g)].v_state->state;
 
-  unsigned int nStates{std::floor(g[e].distance / (2.0*mCheckRadius))};
+  unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
   unsigned int stepSize{5};
   double result{1.0};
 
@@ -322,7 +375,7 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
     std::chrono::duration<double> elapsedSeconds{endTime-startTime};
     mLookupTime += elapsedSeconds.count();
 
-    result *= (1.0 - coll_prob);
+    result *= (1.0 - collProb);
   }
 
   g[e].probFree = result;
@@ -330,7 +383,7 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
 }
 
 
-bool checkAndSetEdgeBlocked(const Edge& e)
+bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 {
   /// March along edge states with highest resolution
   
@@ -341,15 +394,15 @@ bool checkAndSetEdgeBlocked(const Edge& e)
   
   auto startState = g[source(e,g)].v_state->state;
   auto endState = g[target(e,g)].v_state->state;
-  unsigned int nStates{std::floor(g[e].distance / (2.0*mCheckRadius))};
+  unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
 
-  const std::vector< std::pair<int,int> > & order = bisectPermObj_.get(nStates);
+  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
 
   for(unsigned int i = 0; i < nStates; i++)
   {
     StateConPtr tempState{std::make_shared<StateCon>(mSpace)};
     mSpace->interpolate(startState, endState,
-      1.0*(1+order[ui].first)/(nStates+1), tempState->state);
+      1.0*(1+order[i].first)/(nStates+1), tempState->state);
 
     mNumCollChecks++;
 
@@ -394,12 +447,12 @@ double BatchingPOMP::rggRadiusFun(unsigned int n) const
   auto dimDbl = static_cast<double>(mSpace->getDimension());
 
   double approximationMeasure{si_->getSpaceMeasure()};
-  if (!std::isfinite(approximationMeasure_)) {
+  if (!std::isfinite(approximationMeasure)) {
     throw ompl::Exception("Measure of space is unbounded!");
   }
 
   double minRggR{
-    2.0 * std::pow((1.0 + 1.0 / dimDbl) * (approximationMeasure_ / unitNBallMeasure(si_->getStateDimension())), 1.0/dimDbl)};
+    2.0 * std::pow((1.0 + 1.0 / dimDbl) * (approximationMeasure / ompl::unitNBallMeasure(si_->getStateDimension())), 1.0/dimDbl)};
 
   auto cardDbl = static_cast<double>(n);
 
@@ -497,15 +550,14 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
 }
 
 
-bool BatchingPOMP::isVertexAdmissible(const Vertex& v) const
+bool BatchingPOMP::isVertexInadmissible(const Vertex& v) const
 {
-  if(mBestPathCost == std::numeric_limits<double>::max()) {
-    return true;
+  if(mBestPathCost >= std::numeric_limits<double>::max()) {
+    return false;
   }
 
   double bestCostThroughVertex{vertexDistFun(mStartVertex,v) + vertexDistFun(v,mGoalVertex)};
-
-  return (bestCostThroughVertex < mBestPathCost);
+  return (bestCostThroughVertex >= mBestPathCost);
 }
 
 
@@ -513,11 +565,11 @@ bool BatchingPOMP::vertexPruneFunction(const Vertex& v) const
 {
   auto validityChecker = si_->getStateValidityChecker();
 
-  return (isVertexAdmissible(v)==false || validityChecker->isValid(g[v].v_state->state)==false);
+  return (isVertexInadmissible(v)==true || validityChecker->isValid(g[v].v_state->state)==false);
 
 }
 
-double getPathDistance(const std::vector<Edge>& _ePath) const
+double BatchingPOMP::getPathDistance(const std::vector<Edge>& _ePath) const
 {
   double pathDistance{0.0};
   for(auto e : _ePath)
@@ -536,8 +588,8 @@ void BatchingPOMP::setProblemDefinition(
   StateConPtr startState{std::make_shared<StateCon>(mSpace)};
   mSpace->copyState(startState->state, pdef->getStartState(0));
 
-  ompl::base::GoalPtr goal = pdef->getGoal();
-  ompl::base::GoalState* goalStatePtr = goal->as<ompl::base::GoalState>();
+  ompl::base::GoalPtr goal{pdef->getGoal()};
+  ompl::base::GoalState* goalStatePtr{goal->as<ompl::base::GoalState>()};
   StateConPtr goalState{std::make_shared<StateCon>(mSpace)};
   mSpace->copyState(goalState->state, goalStatePtr->getState());
 
@@ -546,14 +598,14 @@ void BatchingPOMP::setProblemDefinition(
   /// Just add start and goal to empty roadmap and to vertex ptr
   /// Batching will take care of adding neighbours and so on
   if(!validityChecker->isValid(startState->state)) {
-    throw std::runtime_error("Start configuration is in collision!");
+    throw ompl::Exception("Start configuration is in collision!");
   }
   mStartVertex = boost::add_vertex(g);
   g[mStartVertex].v_state = startState;
   mVertexNN->add(mStartVertex);
 
   if(!validityChecker->isValid(goalState->state)) {
-    throw std::runtime_error("Start configuration is in collision!");
+    throw ompl::Exception("Start configuration is in collision!");
   }
   mGoalVertex = boost::add_vertex(g);
   g[mGoalVertex].v_state = goalState;
@@ -566,8 +618,8 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
 {
   
   double currSolnCost{std::numeric_limits<double>::max()};
-  mIsPathfound = false;
-  std::vector<Vertex> ePath;
+  mIsPathFound = false;
+  std::vector<Edge> ePath;
 
   while(currSolnCost >= mBestPathCost)
   {
@@ -577,18 +629,18 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       if(mBestPathCost < std::numeric_limits<double>::max()) {
         /// Non trivial best solution found
         OMPL_INFORM("All batches exhausted - current solution is the best!");
-        return ompl::PlannerStatus::EXACT_SOLUTION;
+        return ompl::base::PlannerStatus::EXACT_SOLUTION;
       }
       else {
         /// No solution found
         OMPL_INFORM("All batches exhausted - no solution found!");
-        return ompl::PlannerStatus::ABORT;
+        return ompl::base::PlannerStatus::ABORT;
       }
     }
 
     if(ptc == true){
       OMPL_INFORM("Planner termination condition satisfied!");
-      return ompl::PlannerStatus::TIMEOUT;
+      return ompl::base::PlannerStatus::TIMEOUT;
     }
 
     /// If it is the start of a new batch, get the next Batch
@@ -597,8 +649,8 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       mCurrentAlpha = 0.0;
       
       std::function<bool(Vertex)> pruneFunction = 
-        std::bind(&BatchingPOMP::vertexPruneFunction, &BatchingPOMP,std::placeholders::_1);
-      mBatchingPtr->nextBatch(pruneFunction, *mVertexNN)
+        std::bind(&BatchingPOMP::vertexPruneFunction, this,std::placeholders::_1);
+      mBatchingPtr->nextBatch(pruneFunction, *mVertexNN);
     }
 
     /// Now do the search
@@ -611,18 +663,13 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     {
       // TODO - Make this more efficient!
       mNumSearches++;
-      WeightMap wm;
       std::unique_ptr<boost::astar_heuristic<Graph, double>> heuristicFn;
 
       if(mIsInitSearchBatch) {
-        /// Log of probability is cost - no heuristic
-        wm = LogProbMap(*this);
         heuristicFn.reset(new zero_heuristic<Graph,double>());
       }
       else {
-        /// Expected cost is cost
-        wm = ExpWeightMap(*this);
-        heuristicFn.reset(new zero_heuristic<Graph,double>(*this));
+        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(*this));
       }
 
       mIsInitSearchBatch = false; // Either way, make it false
@@ -637,7 +684,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
-          wm,
+          ExpWeightMap(*this),
           boost::get(boost::vertex_index, g),
           boost::make_assoc_property_map(colorMap),
           std::less<double>(),
@@ -655,7 +702,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
-          wm,
+          ExpWeightMap(*this),
           boost::get(boost::vertex_index, g),
           boost::make_assoc_property_map(colorMap),
           std::less<double>(),
@@ -674,10 +721,10 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       /// Did not find a path
       OMPL_INFORM("No further feasible paths to find in roadmap!");
       if(mBestPathCost < std::numeric_limits<double>::max()) {
-        return ompl::PlannerStatus::EXACT_SOLUTION;
+        return ompl::base::PlannerStatus::EXACT_SOLUTION;
       }
       else {
-        return ompl::PlannerStatus::ABORT;
+        return ompl::base::PlannerStatus::ABORT;
       }
     }
 
@@ -703,7 +750,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     bool pathBlocked{checkAndUpdatePathBlocked(ePath)};
 
     if(!pathBlocked) {
-      mIsPathfound = true;
+      mIsPathFound = true;
       currSolnCost = getPathDistance(ePath);
 
       if(mCurrentAlpha >= 1.0) {
@@ -737,10 +784,10 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
   pdef_->addSolutionPath(ompl::base::PathPtr(path));
 
   /// Prune vertices using current solution cost if sufficiently improved
-  if(improvementFactor > BatchingPOMP::PRUNETHRESHOLD) {
-    std::function<bool(Vertex)> admissibleFunction = 
-        std::bind(&BatchingPOMP::isVertexAdmissible, &BatchingPOMP,std::placeholders::_1);
-    mBatchingPtr->pruneVertices(admissibleFunction);
+  if(improvementFactor > mPruneThreshold) {
+    std::function<bool(Vertex)> pruneFunction = 
+        std::bind(&BatchingPOMP::isVertexInadmissible, this,std::placeholders::_1);
+    mBatchingPtr->pruneVertices(pruneFunction);
   }
 
   return ompl::base::PlannerStatus::APPROXIMATE_SOLUTION;

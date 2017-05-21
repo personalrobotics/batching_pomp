@@ -37,21 +37,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace batching {
 
-template<class Graph, class VStateMap, class StateCon>
-class EdgeBatching : public BatchingManager<Graph, VStateMap, StateCon>
+template<class Graph, class VStateMap, class StateCon, class EDistance>
+class EdgeBatching : public BatchingManager<Graph, VStateMap, StateCon, EDistance>
 {
 
 typedef boost::graph_traits<Graph> GraphTypes;
 typedef typename GraphTypes::vertex_iterator VertexIter;
 typedef typename GraphTypes::vertex_descriptor Vertex;
 
-
-using BatchingManager<Graph, VStateMap, StateCon>::mFullRoadmap;
-using BatchingManager<Graph, VStateMap, StateCon>::mCurrentRoadmap;
-using BatchingManager<Graph, VStateMap, StateCon>::mNumBatches;
-using BatchingManager<Graph, VStateMap, StateCon>::mNumVertices;
-using BatchingManager<Graph, VStateMap, StateCon>::mExhausted;
-using BatchingManager<Graph, VStateMap, StateCon>::mCurrRadius;
 
 public:
 
@@ -63,10 +56,9 @@ public:
                std::function<double(unsigned int)> _initRadiusFn,
                double _maxRadius
                )
-  : BatchingManager<Graph, VStateMap, StateCon>(_space,_stateMap,_roadmapFileName,_currentRoadmap)
+  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_currentRoadmap)
   , mRadiusInflFactor{_radiusInflFactor}
-  , mInitRadius{_initRadiusFn(mNumVertices)}
-  , mCurrRadius{mInitRadius}
+  , mInitRadius{_initRadiusFn(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumVertices)}
   , mMaxRadius{_maxRadius}
   {
   }
@@ -114,25 +106,26 @@ public:
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
 
-    if(mExhausted){
+    if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
       return;
     }
 
     OMPL_INFORM("New Edge Batch called!");
-    ++mNumBatches;
+    ++BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumBatches;
 
-    if(mNumBatches == 1u)
+    if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumBatches == 1u)
     {
       VertexIter vi, vi_end;
-      std::vector<Vertex> vertex_vector(mNumVertices);
-      size_t idx = 0;
+      std::vector<Vertex> vertex_vector(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumVertices);
+      size_t idx{0};
 
-      for(boost::tie(vi,vi_end)=vertices(mFullRoadmap); vi!=vi_end; ++vi)
+      for(boost::tie(vi,vi_end)=vertices(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap); vi!=vi_end; ++vi)
       {
-        if(!_pruneFunction(mFullRoadmap[*vi])) {
-          Vertex newVertex = boost::add_vertex(mCurrentRoadmap);
-          mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*vi].v_state;
+        if(!_pruneFunction(*vi)) {
+          Vertex newVertex = boost::add_vertex(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap);
+          BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap[newVertex].v_state = 
+              BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*vi].v_state;
           vertex_vector[idx++] = newVertex;
         }
       }
@@ -140,17 +133,18 @@ public:
       /// Truncate to actual number of samples
       /// TODO : Make sure this works!
       vertex_vector.resize(idx);
+      _vertexNN.add(vertex_vector);
 
-      _vertexNN.add(vertex_vector);  
+      BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mInitRadius;  
     }
     else {
-      mCurrRadius = mCurrRadius * mRadiusInflFactor;
+      BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius * mRadiusInflFactor;
     }
 
-    if(mCurrRadius > mMaxRadius)
+    if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius > mMaxRadius)
     {
-      mCurrRadius = mMaxRadius;
-      mExhausted = true;
+      BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mMaxRadius;
+      BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;
     }
 
   }

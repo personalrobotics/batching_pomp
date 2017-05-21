@@ -50,6 +50,8 @@ class RoadmapFromFilePutStateMap
 public:
   typedef boost::writable_property_map_tag category;
   typedef typename boost::property_traits<PropMap>::key_type key_type;
+  typedef std::string value_type;
+  typedef std::string reference;
 
   const PropMap mPropMap;
   ompl::base::StateSpacePtr mSpace;
@@ -80,8 +82,8 @@ put(const RoadmapFromFilePutStateMap<PropMap,StateCon> & map,
     const std::string representation)
 {
   get(map.mPropMap, k).reset(new StateCon(map.mSpace));
-  ompl::base::State * ver_state = get(map.mPropMap, k)->state;
-  double * values = ver_state->as<ompl::base::RealVectorStateSpace::StateType>()->values;
+  ompl::base::State* ver_state{get(map.mPropMap, k)->state};
+  double * values{ver_state->as<ompl::base::RealVectorStateSpace::StateType>()->values};
   std::stringstream ss(representation);
   for (unsigned int ui=0; ui<map.mDim; ui++){
     ss >> values[ui];
@@ -150,7 +152,7 @@ public:
 private:
 
   unsigned int mDim;
-  ompl::base::RealVectorStateSpace mBounds;
+  ompl::base::RealVectorBounds mBounds;
   const ompl::base::StateSpacePtr mSpace;
 
 };

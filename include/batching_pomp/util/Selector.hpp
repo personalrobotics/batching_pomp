@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <stdexcept>
 #include <memory>
+#include <functional>
 #include <boost/property_map/dynamic_property_map.hpp>
 #include <boost/graph/graphml.hpp>
 #include <boost/graph/adjacency_list.hpp>
@@ -57,16 +58,17 @@ public:
   : mType{_type}
   {
     if(mType == "normal") {
-      mSelectEdgeFnPtr = &selectEdgesNormal;
+      
+      mSelectEdgeFnPtr = std::bind(&Selector<Graph>::selectEdgesNormal,this,std::placeholders::_1,std::placeholders::_2);
     }
     else if(mType == "alternate") {
-      mSelectEdgeFnPtr = &selectEdgesAlternate;
+      mSelectEdgeFnPtr = std::bind(&Selector<Graph>::selectEdgesAlternate,this,std::placeholders::_1,std::placeholders::_2);
     }
     else if(mType == "failfast") {
-      mSelectEdgeFnPtr = &selectEdgesFailFast;
+      mSelectEdgeFnPtr = std::bind(&Selector<Graph>::selectEdgesFailFast,this,std::placeholders::_1,std::placeholders::_2);
     }
     else if(mType == "maxinf") {
-      mSelectEdgeFnPtr = &selectEdgesMaxInf;
+      mSelectEdgeFnPtr = std::bind(&Selector<Graph>::selectEdgesMaxInf,this,std::placeholders::_1,std::placeholders::_2);
     }
     else {
       throw std::invalid_argument("Invalid selector type specified - "+mType+"!");
@@ -107,6 +109,7 @@ private:
   std::vector<Edge> selectEdgesFailFast(const Graph& g, const std::vector<Edge>& epath) const
   {
     std::vector < EdgePair > edgeProbList;
+    edgeProbList.reserve(epath.size());
     for(Edge e : epath) {
       edgeProbList.push_back(std::make_pair(g[e].probFree,e));
     }
@@ -114,6 +117,7 @@ private:
     std::sort(edgeProbList.begin(), edgeProbList.end());
 
     std::vector<Edge> orderedEdges;
+    orderedEdges.reserve(edgeProbList.size());
     for(EdgePair ep : edgeProbList) {
       orderedEdges.push_back(ep.second);
     }
@@ -125,6 +129,7 @@ private:
   std::vector<Edge> selectEdgesMaxInf(const Graph& g, const std::vector<Edge>& epath) const
   {
     std::vector < EdgePair > edgeProbList;
+    edgeProbList.reserve(epath.size());
     for(Edge e : epath) {
       edgeProbList.push_back( std::make_pair(std::fabs(g[e].probFree-0.5),e) );
     }
@@ -132,6 +137,7 @@ private:
     std::sort(edgeProbList.begin(), edgeProbList.end());
 
     std::vector<Edge> orderedEdges;
+    orderedEdges.reserve(edgeProbList.size());
     for(EdgePair ep : edgeProbList) {
       orderedEdges.push_back(ep.second);
     }

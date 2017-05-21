@@ -44,11 +44,6 @@ typedef boost::graph_traits<Graph> GraphTypes;
 typedef typename GraphTypes::vertex_iterator VertexIter;
 typedef typename GraphTypes::vertex_descriptor Vertex;
 
-using BatchingManager<Graph, VStateMap, StateCon>::mFullRoadmap;
-using BatchingManager<Graph, VStateMap, StateCon>::mCurrentRoadmap;
-using BatchingManager<Graph, VStateMap, StateCon>::mNumBatches;
-using BatchingManager<Graph, VStateMap, StateCon>::mExhausted;
-using BatchingManager<Graph, VStateMap, StateCon>::pruneVertices;
 
 public:
 
@@ -71,22 +66,22 @@ public:
   void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
-    if(mExhausted){
+    if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
       return;
     }
 
     OMPL_INFORM("Single Batch called!");
-    ++mNumBatches;
+    ++BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumBatches;
 
     /// You know there is only one batch
     /// TODO - check that this works
-    mCurrentRoadmap = mFullRoadmap;
+    BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap;
 
     ///Now remove all invalid vertices
-    pruneVertices(_pruneFunction);
+    BatchingManager<Graph, VStateMap, StateCon, EDistance>::pruneVertices(_pruneFunction);
 
-    mExhausted = true;
+    BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;
 
   }
 

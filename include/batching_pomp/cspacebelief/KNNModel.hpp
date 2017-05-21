@@ -119,20 +119,25 @@ public:
 
     Eigen::VectorXd weights(knn);
     Eigen::VectorXd values(knn);
+    unsigned int pointsUsed{0u};
 
     for(size_t i = 0; i < knn; i++) {
       double distance = mDistanceFunction(query, neighboursVect[i]);
 
       if(distance < mSupportThreshold) {
+        ++pointsUsed;
         weights[i] = 1.0/distance;
         values[i] = neighboursVect[i].getValue(); // Second element of pair is value
       }
     }
+    double result{mPrior};
 
-    double result = weights.dot(values) / weights.sum();
+    if(pointsUsed > 0u) {
+      result = weights.dot(values) / weights.sum();
 
-    // Do (result + pw*p) / (1 + pw) for smoothing by prior
-    result = (result + mPriorWeight*mPrior) / (1 + mPriorWeight);
+      // Do (result + pw*p) / (1 + pw) for smoothing by prior
+      result = (result + mPriorWeight*mPrior) / (1 + mPriorWeight);
+    }
 
     return result;
   }

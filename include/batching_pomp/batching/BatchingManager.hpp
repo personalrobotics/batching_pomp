@@ -38,7 +38,7 @@ namespace batching {
 
 /// Abstract class that represents the batching strategy used for the
 /// planning algorithm. 
-template<class Graph, class VStateMap, class StateCon, class EDistance=StateCon>
+template<class Graph, class VStateMap, class StateCon, class EDistance>
 class BatchingManager
 {
 
@@ -104,7 +104,7 @@ public:
     return mCurrRadius;
   }
   
-  void pruneVertices(std::function<bool(Vertex)>& _pruneFunction)
+  void pruneVertices(const std::function<bool(Vertex)>& _pruneFunction)
   {
     /// TODO: Check if this preserves iterator stability
     VertexIter next,vi,vi_end;
@@ -122,7 +122,7 @@ public:
   virtual void updateWithNewSolutionCost(double _newSolnCost) = 0;
 
   /// Nearest neighbour member may be nullptr (for single batch case)
-  virtual void nextBatch(std::function<bool(Vertex)>& _pruneFunction,
+  virtual void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
                          ompl::NearestNeighbors<Vertex>& _vertexNN) = 0;
 
 

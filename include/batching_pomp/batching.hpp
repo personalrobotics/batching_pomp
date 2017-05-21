@@ -2,3 +2,4 @@
 #include "batching/EdgeBatching.hpp"
 #include "batching/HybridBatching.hpp"
 #include "batching/VertexBatching.hpp"
+#include "batching/SingleBatching.hpp"

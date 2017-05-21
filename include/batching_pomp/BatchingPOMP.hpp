@@ -35,12 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 #include <boost/graph/astar_search.hpp>
 #include <boost/graph/properties.hpp>
+#include <boost/property_map/dynamic_property_map.hpp>
 
 #include <ompl/base/Planner.h>
 #include <ompl/base/StateSpace.h>
 #include <ompl/base/ScopedState.h>
 #include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <ompl/datastructures/NearestNeighbors.h>
+#include <ompl/datastructures/NearestNeighborsGNAT.h>
 
 #include "batching.hpp"
 #include "cspacebelief.hpp"
@@ -55,8 +57,8 @@ struct StateCon
   const ompl::base::StateSpacePtr space;
   ompl::base::State * state;
   StateCon(const ompl::base::StateSpacePtr _space)
-  : space(_space)
-  , state(space->allocState()) {}
+  : space{_space}
+  , state{space->allocState()} {}
   ~StateCon() {space->freeState(this->state); }
 };
 
@@ -66,18 +68,12 @@ typedef std::shared_ptr<StateCon> StateConPtr;
 class BatchingPOMP : public ompl::base::Planner
 {
 
-  using batching_pomp::batching::BatchingManager;
-  using batching_pomp::cspacebelief::BeliefPoint;
-  using batching_pomp::cspacebelief::Model;
-  using batching_pomp::cspacebelief::Selector;
-  using batching_pomp::cspacebelief::BisectPerm;
-
-  const static int FREE{1};
-  const static int BLOCKED{-1};
-  const static int UNKNOWN{0};
-  const static double PRUNETHRESOLD{1.1}; //Threshold of old-cost/new-cost beyond which pruning should be done
-
 public:
+
+  static const int FREE{1};
+  static const int BLOCKED{-1};
+  static const int UNKNOWN{0};
+  static constexpr double DEFAULTPRUNETHRESHOLD = 1.1; //Threshold of old-cost/new-cost beyond which pruning should be done
 
   struct VProps
   {
@@ -103,14 +99,14 @@ public:
   typedef boost::property_map<Graph, StateConPtr VProps::*>::type VPStateMap;
   typedef boost::property_map<Graph, double EProps::*>::type EPDistanceMap;
   typedef boost::property_map<Graph, boost::vertex_index_t>::type VertexIndexMap;
-  typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
+  //typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
 
   /// Public variables for the planner
   const ompl::base::StateSpacePtr mSpace;
 
-  std::unique_ptr< BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > mBatchingPtr;
+  std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > mBatchingPtr;
 
-  std::unique_ptr< Model<BeliefPoint> > mBeliefModel;
+  std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > mBeliefModel;
 
   Graph g;
 
@@ -119,13 +115,12 @@ public:
 
   /// Constructor for non-default stuff
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
-               std::unique_ptr< BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
-               std::unique_ptr< Model<BeliefPoint> _beliefModel,
-               std::unique_ptr< Selector<Graph> > _selector,
-               double _searchInflFactor,
-               double _decrement,
+               std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
+               std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > _beliefModel,
+               std::unique_ptr< util::Selector<Graph> > _selector,
+               double _increment,
                double _startGoalRadius,
-               double _checkRadius,
+               double _pruneThreshold,
                const std::string& _roadmapFileName);
 
   ~BatchingPOMP(void);
@@ -135,12 +130,13 @@ public:
   double getCurrentBestCost() const;
   Vertex getStartVertex() const;
   Vertex getGoalVertex() const;
-  bool isInitSearchBatch();
-  void setSearchInflationFactor(double _searchInflFactor);
+  bool isInitSearchBatch() const;
   double getIncrement() const;
   void setIncrement(double _decrement);
   double getStartGoalRadius() const;
   void setStartGoalRadius(double _startGoalRadius);
+  double getPruneThreshold() const;
+  void setPruneThreshold(double _pruneThreshold);
   std::string getGraphType() const;
   void setGraphType(const std::string& _graphType);
   std::string getBatchingType() const;
@@ -161,27 +157,27 @@ public:
   ompl::base::PlannerStatus solve(const ompl::base::PlannerTerminationCondition & ptc);
 
   /// Public helper methods
+  double vertexDistFun(const Vertex& u, const Vertex& v) const;
   double computeAndSetEdgeFreeProbability(const Edge& e);
   bool checkAndSetEdgeBlocked(const Edge& e);
-  double vertexDistFun(const Vertex& u, const Vertex& v) const;
 
 private:
 
   /// Planning helpers
-  std::unique_ptr<Selector<Graph>> mSelector;
-  std::unique_ptr<ompl::NearestNeighborsGNAT<BeliefPoint>> mVertexNN;
+  std::unique_ptr<util::Selector<Graph>> mSelector;
+  std::unique_ptr<ompl::NearestNeighborsGNAT<Vertex>> mVertexNN;
   std::function<double(unsigned int)> mRadiusFun;
-  BisectPerm mBisectPermObj;
+  util::BisectPerm mBisectPermObj;
   Vertex mStartVertex;
   Vertex mGoalVertex;
   std::vector<Edge> mEdgesToUpdate;
   std::vector<Edge> mCurrBestPath;
-  AStarVisitor mSearchVisitor;
 
   /// Planner parameters
   double mCurrentAlpha;
   double mIncrement;
   double mStartGoalRadius;
+  double mPruneThreshold;
   bool mIsInitSearchBatch;
   bool mIsPathFound;
   double mCheckRadius;
@@ -203,7 +199,7 @@ private:
   void updateAffectedEdgeWeights();
   void addAffectedEdges(const Edge& e);
   bool checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath);
-  bool isVertexAdmissible(const Vertex& v)
+  bool isVertexInadmissible(const Vertex& v) const ;
   bool vertexPruneFunction(const Vertex& v) const;
   double getPathDistance(const std::vector<Edge>& _ePath) const;
 };
@@ -254,8 +250,9 @@ public:
   : mPlanner{_planner}
   , mVertexNN{_vertexNN}
   , mCurrRadius{_currRadius}
+  , mVertexDistFun{mVertexNN.getDistanceFunction()}
   , mVThrow{_vThrow}
-  , mVertexDistFun{mVertexNN.getDistanceFunction()} {}
+  {}
   inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
@@ -271,11 +268,11 @@ public:
     // Now iterate through neighbors and check if edge exists between
     // u and neighbour. If it does not exist, create it AND set its
     // distance (one-time computation) based on provided distance function
-    for(Vertex nbr : vertexNbrs){
-      if(!edge(u,nbr,g).second){
-        std::pair<Edge,bool> new_edge = add_edge(u,nbr,g);
-        g[new_edge.first].distance = mVertexDistFun(source(new_edge,g), target(new_edge,g));
-        g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
+    for(BatchingPOMP::Vertex nbr : vertexNbrs){
+      if(!edge(u,nbr,mPlanner.g).second){
+        std::pair<BatchingPOMP::Edge,bool> new_edge = add_edge(u,nbr,mPlanner.g);
+        mPlanner.g[new_edge.first].distance = mVertexDistFun(source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
+        mPlanner.g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
         mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
       }
     }
@@ -291,25 +288,30 @@ public:
 class ExpWeightMap
 {
 public:
-
+  typedef boost::readable_property_map_tag category;
+  typedef BatchingPOMP::Edge key_type;
+  typedef double value_type;
+  typedef double reference;
   const BatchingPOMP& mPlanner;
-  EdgeWeightMap(const BatchingPOMP& _planner)
+  ExpWeightMap(const BatchingPOMP& _planner)
   : mPlanner{_planner} {}
 };
 
-const double get(const EdgeWeightMap& _ewMap, const BatchingPOMP::Edge& e)
+const double get(const ExpWeightMap& _ewMap, const BatchingPOMP::Edge& e)
 {
   if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::BLOCKED) {
     return std::numeric_limits<double>::max();
   }
 
+  double alpha{_ewMap.mPlanner.getCurrentAlpha()};
+
   if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::FREE) {
-    return _ewMap.mPlanner.g[e].distance;
+    return (alpha*_ewMap.mPlanner.g[e].distance);
   }
 
-  double alpha{_ewMap.mPlanner->getCurrentAlpha()};
+  
   double w_m{-std::log(_ewMap.mPlanner.g[e].probFree)};
-  double w_l{dmap.pm_planner.g[e].distance};
+  double w_l{_ewMap.mPlanner.g[e].distance};
 
   double exp_cost{alpha*w_l + (1-alpha)*w_m};
 
@@ -317,27 +319,30 @@ const double get(const EdgeWeightMap& _ewMap, const BatchingPOMP::Edge& e)
 }
 
 /// Log probability weight map
-class LogProbMap
-{
-public:
+// class LogProbMap
+// {
+// public:
+//   typedef boost::readable_property_map_tag category;
+//   typedef BatchingPOMP::Edge key_type;
+//   typedef double value_type;
+//   typedef double reference;
+//   const BatchingPOMP& mPlanner;
+//   LogProbMap(BatchingPOMP& _planner)
+//   : mPlanner{_planner} {}
+// };
 
-  const BatchingPOMP& mPlanner;
-  LogProbMap(BatchingPOMP& _planner)
-  : mPlanner{_planner} {}
-};
+// const double get(const LogProbMap& _ewMap, const BatchingPOMP::Edge& e)
+// {
+//   if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::BLOCKED) {
+//     return std::numeric_limits<double>::max();
+//   }
 
-const double get(const LogProbMap& _ewMap, const BatchingPOMP::Edge& e)
-{
-  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::BLOCKED) {
-    return std::numeric_limits<double>::max();
-  }
+//   if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::FREE) {
+//     return 0.0;
+//   }
 
-  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::FREE) {
-    return 0.0;
-  }
-
-  return -std::log(g[e].probFree);
-};
+//   return -std::log(_ewMap.mPlanner.g[e].probFree);
+// };
 
 /// Euclidean distance heuristic for A-star search
 template<class Graph, class CostType>
@@ -346,10 +351,11 @@ class exp_distance_heuristic : public boost::astar_heuristic<Graph, CostType>
 public:
   exp_distance_heuristic(const BatchingPOMP& _planner)
   : mPlanner{_planner}
+  {}
 
   CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
   {
-    return mPlanner->getCurrentAlpha() * mPlanner.vertexDistFun(u, mPlanner->getGoalVertex());
+    return mPlanner.getCurrentAlpha() * mPlanner.vertexDistFun(u, mPlanner.getGoalVertex());
   }
 
 private:
