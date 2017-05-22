@@ -42,6 +42,143 @@ namespace batching_pomp{
 
 using batching_pomp::cspacebelief::BeliefPoint;
 
+class ExpWeightMap
+{
+public:
+  typedef boost::readable_property_map_tag category;
+  typedef BatchingPOMP::Edge key_type;
+  typedef double value_type;
+  typedef double reference;
+  const BatchingPOMP& mPlanner;
+  ExpWeightMap(const BatchingPOMP& _planner)
+  : mPlanner{_planner} {}
+};
+
+const double get(const ExpWeightMap& _ewMap, const BatchingPOMP::Edge& e)
+{
+  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::BLOCKED) {
+    return std::numeric_limits<double>::max();
+  }
+
+  double alpha{_ewMap.mPlanner.getCurrentAlpha()};
+
+  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::FREE) {
+    return (alpha*_ewMap.mPlanner.g[e].distance);
+  }
+
+  
+  double w_m{-std::log(_ewMap.mPlanner.g[e].probFree)};
+  double w_l{_ewMap.mPlanner.g[e].distance};
+
+  double exp_cost{alpha*w_l + (1-alpha)*w_m};
+
+  return exp_cost;
+}
+
+class throw_visitor_exception : public std::exception {};
+class throw_visitor
+{
+
+public:
+  BatchingPOMP::Vertex mVThrow;
+  throw_visitor(BatchingPOMP::Vertex _vThrow): mVThrow{_vThrow} {}
+  inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
+  inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
+  inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
+  {
+    if(u == mVThrow) {
+      throw throw_visitor_exception();
+    }
+  }
+  inline void examine_edge(BatchingPOMP::Edge e, const BatchingPOMP::Graph& g) {}
+  inline void edge_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
+  inline void edge_not_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
+  inline void black_target(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
+  inline void finish_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph & g) {}
+};
+
+
+/// For implementing implicit r-neighbour graphs with boost
+class neighbours_visitor
+{
+public:
+  BatchingPOMP& mPlanner;
+  ompl::NearestNeighbors<BatchingPOMP::Vertex>& mVertexNN;
+  double mCurrRadius;
+  std::function<double(const BatchingPOMP::Vertex&, const BatchingPOMP::Vertex&)> mVertexDistFun;
+  BatchingPOMP::Vertex mVThrow;
+
+  neighbours_visitor(BatchingPOMP& _planner,
+                     ompl::NearestNeighbors<BatchingPOMP::Vertex>& _vertexNN, 
+                     double _currRadius,
+                     BatchingPOMP::Vertex _vThrow)
+  : mPlanner{_planner}
+  , mVertexNN{_vertexNN}
+  , mCurrRadius{_currRadius}
+  , mVertexDistFun{mVertexNN.getDistanceFunction()}
+  , mVThrow{_vThrow}
+  {}
+  inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
+  inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
+  inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
+  {
+
+    if(u == mVThrow) {
+      throw throw_visitor_exception();
+    }
+
+    std::vector<BatchingPOMP::Vertex> vertexNbrs;
+    mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
+
+    // Now iterate through neighbors and check if edge exists between
+    // u and neighbour. If it does not exist, create it AND set its
+    // distance (one-time computation) based on provided distance function
+    for(BatchingPOMP::Vertex nbr : vertexNbrs){
+      if(!edge(u,nbr,mPlanner.g).second){
+        std::pair<BatchingPOMP::Edge,bool> new_edge = add_edge(u,nbr,mPlanner.g);
+        mPlanner.g[new_edge.first].distance = mVertexDistFun(source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
+        mPlanner.g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
+        mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
+      }
+    }
+  }
+  inline void examine_edge(BatchingPOMP::Edge e, const BatchingPOMP::Graph& g) {}
+  inline void edge_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
+  inline void edge_not_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
+  inline void black_target(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
+  inline void finish_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph & g) {}
+};
+
+
+/// Euclidean distance heuristic for A-star search
+template<class Graph, class CostType>
+class exp_distance_heuristic : public boost::astar_heuristic<Graph, CostType>
+{
+public:
+  exp_distance_heuristic(const BatchingPOMP& _planner)
+  : mPlanner{_planner}
+  {}
+
+  CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
+  {
+    return mPlanner.getCurrentAlpha() * mPlanner.vertexDistFun(u, mPlanner.getGoalVertex());
+  }
+
+private:
+  const BatchingPOMP& mPlanner;
+};
+
+template<class Graph, class CostType>
+class zero_heuristic : public boost::astar_heuristic<Graph, CostType>
+{
+public:
+  zero_heuristic(){}
+
+  CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
+  {
+    return 0.0;
+  }
+};
 
 /// Default constructor for CPP-level usage
 BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
