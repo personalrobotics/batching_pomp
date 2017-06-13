@@ -39,10 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/base/ScopedState.h>
 #include <ompl/base/StateSpace.h>
 #include <ompl/base/spaces/RealVectorStateSpace.h>
-
+#include "rv_state_map_string_adaptor.hpp"
 
 namespace batching_pomp {
 namespace util {
+
 
 template <class PropMap, class StateCon>
 class RoadmapFromFilePutStateMap
@@ -132,6 +133,9 @@ public:
     boost::dynamic_properties props;
     props.property("state",
       RoadmapFromFilePutStateMap<VStateMap,StateCon>(_stateMap, mSpace, mDim));
+    // props.property("state",
+    //   batching_pomp::util::make_rvstate_map_string_adaptor
+    //   (_stateMap,mSpace->as<ompl::base::RealVectorStateSpace>()));
 
     boost::read_graphml(fp, _roadmap, props);
   }

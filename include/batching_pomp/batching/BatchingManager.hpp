@@ -51,8 +51,10 @@ public:
   BatchingManager(const ompl::base::StateSpacePtr _space,
                   VStateMap _stateMap,
                   std::string _roadmapFileName,
+                  Graph& _fullRoadmap,
                   Graph& _currentRoadmap)
-  : mCurrentRoadmap{_currentRoadmap}
+  : mFullRoadmap{_fullRoadmap}
+  , mCurrentRoadmap{_currentRoadmap}
   , mNumBatches{0u}
   , mExhausted{false}
   , mCurrRadius{0.0}
@@ -68,8 +70,10 @@ public:
                   VStateMap _stateMap,
                   EDistance _distanceMap,
                   std::string _roadmapFileName,
+                  Graph& _fullRoadmap,
                   Graph& _currentRoadmap)
-  : mCurrentRoadmap{_currentRoadmap}
+  : mFullRoadmap{_fullRoadmap}
+  , mCurrentRoadmap{_currentRoadmap}
   , mNumBatches{0u}
   , mExhausted{false}
   , mCurrRadius{0.0}
@@ -104,18 +108,35 @@ public:
     return mCurrRadius;
   }
   
-  void pruneVertices(const std::function<bool(Vertex)>& _pruneFunction)
+  void pruneVertices(const std::function<bool(Vertex)>& _pruneFunction,
+                     ompl::NearestNeighbors<Vertex>& _vertexNN)
   {
     /// TODO: Check if this preserves iterator stability
-    VertexIter next,vi,vi_end;
-    boost::tie(vi,vi_end) = vertices(mCurrentRoadmap);
+    VertexIter vi,vi_end;
+    std::vector<Vertex> verticesToRemove;
+    //verticesToRemove.reserve(num_vertices(mCurrentRoadmap));
+    //size_t vRemoved{0};
 
-    for(next=vi; vi!=vi_end; vi=next)
-    {
+    for(boost::tie(vi,vi_end) = vertices(mCurrentRoadmap); vi!=vi_end; ++vi)
+    { 
       if(_pruneFunction(*vi)) {
-        remove_vertex(*vi,mCurrentRoadmap);
+        //verticesToRemove[vRemoved++] = *vi;
+        std::cout<<"To remove "<<*vi<<std::endl;
+        verticesToRemove.push_back(*vi);
       }
     }
+
+    /// Now remove vertices
+    //for(size_t i=0; i<vRemoved; i++)
+    for(auto v : verticesToRemove)
+    {
+      //remove_vertex(verticesToRemove[i],mCurrentRoadmap);
+      clear_vertex(v,mCurrentRoadmap);
+      _vertexNN.remove(v);
+      //remove_vertex(v,mCurrentRoadmap);
+    }
+
+    std::cout<<"Vertices removed"<<std::endl;
   }
 
   /// Make any updates to batching manager with newest solution cost
@@ -128,7 +149,7 @@ public:
 
 protected:
 
-  Graph mFullRoadmap;
+  Graph & mFullRoadmap;
   Graph & mCurrentRoadmap;
 
   unsigned int mNumBatches;

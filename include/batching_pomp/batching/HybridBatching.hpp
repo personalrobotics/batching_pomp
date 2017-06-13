@@ -51,6 +51,7 @@ public:
   HybridBatching(const ompl::base::StateSpacePtr _space,
                  VStateMap _stateMap,
                  std::string _roadmapFileName,
+                 Graph& _fullRoadmap,
                  Graph& _currentRoadmap,
                  unsigned int _initNumVertices,
                  double _vertInflFactor,
@@ -58,7 +59,7 @@ public:
                  const std::function<double(unsigned int)>& _initRadiusFn,
                  double _maxRadius
                  )
-  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_currentRoadmap)
+  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_fullRoadmap,_currentRoadmap)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}

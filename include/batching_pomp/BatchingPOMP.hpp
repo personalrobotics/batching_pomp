@@ -109,6 +109,7 @@ public:
   std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > mBeliefModel;
 
   Graph g;
+  Graph full_g;
 
   /// OMPL methods
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si);
@@ -155,6 +156,7 @@ public:
   /// OMPL required methods
   void setProblemDefinition(const ompl::base::ProblemDefinitionPtr & pdef);
   ompl::base::PlannerStatus solve(const ompl::base::PlannerTerminationCondition & ptc);
+  void setup();
 
   /// Public helper methods
   double vertexDistFun(const Vertex& u, const Vertex& v) const;

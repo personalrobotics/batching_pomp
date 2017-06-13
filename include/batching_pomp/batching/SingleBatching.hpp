@@ -51,10 +51,11 @@ public:
                  VStateMap _stateMap,
                  EDistance _distanceMap,
                  std::string _roadmapFileName,
+                 Graph& _fullRoadmap,
                  Graph& _currentRoadmap
                 )
   : BatchingManager<Graph, VStateMap, StateCon, EDistance>
-                  (_space,_stateMap,_distanceMap,_roadmapFileName,_currentRoadmap)
+                  (_space,_stateMap,_distanceMap,_roadmapFileName,_fullRoadmap,_currentRoadmap)
   {}
 
   //////////////////////////////////////////////////
@@ -79,7 +80,7 @@ public:
     BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap;
 
     ///Now remove all invalid vertices
-    BatchingManager<Graph, VStateMap, StateCon, EDistance>::pruneVertices(_pruneFunction);
+    BatchingManager<Graph, VStateMap, StateCon, EDistance>::pruneVertices(_pruneFunction,_vertexNN);
 
     BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;
 

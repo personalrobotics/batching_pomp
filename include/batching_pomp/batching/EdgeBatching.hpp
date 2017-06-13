@@ -51,12 +51,13 @@ public:
   EdgeBatching(const ompl::base::StateSpacePtr _space,
                VStateMap _stateMap,
                std::string _roadmapFileName,
+               Graph& _fullRoadmap,
                Graph& _currentRoadmap,
                double _radiusInflFactor,
                std::function<double(unsigned int)> _initRadiusFn,
                double _maxRadius
                )
-  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_currentRoadmap)
+  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_fullRoadmap,_currentRoadmap)
   , mRadiusInflFactor{_radiusInflFactor}
   , mInitRadius{_initRadiusFn(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumVertices)}
   , mMaxRadius{_maxRadius}
@@ -146,6 +147,8 @@ public:
       BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mMaxRadius;
       BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;
     }
+
+    std::cout<<"Current radius for EB is "<<BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius<<std::endl;
 
   }
 

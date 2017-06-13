@@ -64,17 +64,6 @@ struct BeliefPoint {
   }
 };
 
-/// Computes (symmetric) distance metric between two belief-point instances
-/// \param[in] _distFun The distance function between underlying ompl state instances
-/// \param[in] _bp1, _bp2 The two belief point instances
-/// \return The distance between two belief points
-double beliefDistanceFunction(
-  std::function<double(const ompl::base::State*, const ompl::base::State*)>& _distFun,
-  const BeliefPoint& _bp1, const BeliefPoint& _bp2)
-{
-  return _distFun(_bp1.state, _bp2.state);
-}
-
 } //namespace cspacebelief
 } //namespace batching_pomp
 

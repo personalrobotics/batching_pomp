@@ -52,11 +52,12 @@ public:
   VertexBatching(const ompl::base::StateSpacePtr _space,
                  VStateMap _stateMap,
                  std::string _roadmapFileName,
+                 Graph& _fullRoadmap,
                  Graph& _currentRoadmap,
                  unsigned int _initNumVertices,
                  double _vertInflFactor
                  )
-  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_currentRoadmap)
+  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_fullRoadmap,_currentRoadmap)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
@@ -123,6 +124,7 @@ public:
     if(idx > 0u) {
       vertex_vector.resize(idx);
       _vertexNN.add(vertex_vector);
+      std::cout<<"Added vector of vertices of size "<<idx<<std::endl;
     }
 
     /// Update size of next subgraph
