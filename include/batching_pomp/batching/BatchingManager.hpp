@@ -53,8 +53,8 @@ public:
                   std::string _roadmapFileName,
                   Graph& _fullRoadmap,
                   Graph& _currentRoadmap)
-  : mFullRoadmap{_fullRoadmap}
-  , mCurrentRoadmap{_currentRoadmap}
+  : mFullRoadmap(_fullRoadmap)
+  , mCurrentRoadmap(_currentRoadmap)
   , mNumBatches{0u}
   , mExhausted{false}
   , mCurrRadius{0.0}
@@ -72,8 +72,8 @@ public:
                   std::string _roadmapFileName,
                   Graph& _fullRoadmap,
                   Graph& _currentRoadmap)
-  : mFullRoadmap{_fullRoadmap}
-  , mCurrentRoadmap{_currentRoadmap}
+  : mFullRoadmap(_fullRoadmap)
+  , mCurrentRoadmap(_currentRoadmap)
   , mNumBatches{0u}
   , mExhausted{false}
   , mCurrRadius{0.0}
@@ -114,29 +114,23 @@ public:
     /// TODO: Check if this preserves iterator stability
     VertexIter vi,vi_end;
     std::vector<Vertex> verticesToRemove;
-    //verticesToRemove.reserve(num_vertices(mCurrentRoadmap));
-    //size_t vRemoved{0};
+    verticesToRemove.reserve(num_vertices(mCurrentRoadmap));
+    size_t vRemoved{0};
 
     for(boost::tie(vi,vi_end) = vertices(mCurrentRoadmap); vi!=vi_end; ++vi)
     { 
       if(_pruneFunction(*vi)) {
-        //verticesToRemove[vRemoved++] = *vi;
-        std::cout<<"To remove "<<*vi<<std::endl;
-        verticesToRemove.push_back(*vi);
+        verticesToRemove[vRemoved++] = *vi;
       }
     }
 
     /// Now remove vertices
-    //for(size_t i=0; i<vRemoved; i++)
-    for(auto v : verticesToRemove)
+    for(size_t i=0; i<vRemoved; i++)
     {
-      //remove_vertex(verticesToRemove[i],mCurrentRoadmap);
-      clear_vertex(v,mCurrentRoadmap);
-      _vertexNN.remove(v);
-      //remove_vertex(v,mCurrentRoadmap);
+      clear_vertex(verticesToRemove[i],mCurrentRoadmap);
+      _vertexNN.remove(verticesToRemove[i]);
     }
 
-    std::cout<<"Vertices removed"<<std::endl;
   }
 
   /// Make any updates to batching manager with newest solution cost

@@ -49,9 +49,9 @@ public:
   typedef BatchingPOMP::Edge key_type;
   typedef double value_type;
   typedef double reference;
-  const BatchingPOMP& mPlanner;
-  ExpWeightMap(const BatchingPOMP& _planner)
-  : mPlanner{_planner} {}
+  BatchingPOMP& mPlanner;
+  ExpWeightMap(BatchingPOMP& _planner)
+  : mPlanner(_planner) {}
 };
 
 const double get(const ExpWeightMap& _ewMap, const BatchingPOMP::Edge& e)
@@ -112,8 +112,8 @@ public:
                      ompl::NearestNeighbors<BatchingPOMP::Vertex>& _vertexNN, 
                      double _currRadius,
                      BatchingPOMP::Vertex _vThrow)
-  : mPlanner{_planner}
-  , mVertexNN{_vertexNN}
+  : mPlanner(_planner)
+  , mVertexNN(_vertexNN)
   , mCurrRadius{_currRadius}
   , mVertexDistFun{mVertexNN.getDistanceFunction()}
   , mVThrow{_vThrow}
@@ -122,7 +122,6 @@ public:
   inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
   {
-    std::cout<<"Examining "<<u<<std::endl;
     if(u == mVThrow) {
       throw throw_visitor_exception();
     }
@@ -130,16 +129,16 @@ public:
     std::vector<BatchingPOMP::Vertex> vertexNbrs;
     mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
 
-    std::cout<<"Neighbours - "<<vertexNbrs.size()<<std::endl;
-
     // Now iterate through neighbors and check if edge exists between
     // u and neighbour. If it does not exist, create it AND set its
     // distance (one-time computation) based on provided distance function
     for(BatchingPOMP::Vertex nbr : vertexNbrs){
-      if(!edge(u,nbr,mPlanner.g).second){
+      // TODO : Find an efficient way to reject itself as a neighbour
+      if(nbr!=u && !edge(u,nbr,mPlanner.g).second){
         std::pair<BatchingPOMP::Edge,bool> new_edge = add_edge(u,nbr,mPlanner.g);
         mPlanner.g[new_edge.first].distance = mVertexDistFun(source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
         mPlanner.g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
+        mPlanner.initializeEdgePoints(new_edge.first);
         mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
       }
     }
@@ -157,8 +156,8 @@ template<class Graph, class CostType>
 class exp_distance_heuristic : public boost::astar_heuristic<Graph, CostType>
 {
 public:
-  exp_distance_heuristic(const BatchingPOMP& _planner)
-  : mPlanner{_planner}
+  exp_distance_heuristic(BatchingPOMP& _planner)
+  : mPlanner(_planner)
   {}
 
   CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
@@ -167,7 +166,7 @@ public:
   }
 
 private:
-  const BatchingPOMP& mPlanner;
+  BatchingPOMP& mPlanner;
 };
 
 template<class Graph, class CostType>
@@ -410,6 +409,29 @@ double BatchingPOMP::vertexDistFun(const Vertex& u, const Vertex& v) const
 }
 
 
+void BatchingPOMP::initializeEdgePoints(const Edge& e)
+{
+  auto startState = g[source(e,g)].v_state->state;
+  auto endState = g[target(e,g)].v_state->state;
+
+  unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
+  g[e].edgeStates.resize(nStates);
+
+  for(unsigned int i = 0; i < nStates; i++)
+  {
+    g[e].edgeStates[i].reset(new StateCon(mSpace));
+  }
+
+  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
+
+  for(unsigned int i = 0; i < nStates; i++)
+  {
+    mSpace->interpolate(startState, endState,
+      1.0*(1+order[i].first)/(nStates+1), g[e].edgeStates[i]->state);
+  }
+}
+
+
 double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
 {
   /// March along edge states with some jump factor
@@ -424,11 +446,7 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
 
   for(unsigned int i = 0; i < nStates; i+=stepSize)
   {
-    StateConPtr tempState{std::make_shared<StateCon>(mSpace)};
-    mSpace->interpolate(startState, endState,
-      1.0*(1+i)/(nStates+1), tempState->state);
-
-    BeliefPoint query(tempState->state, -1.0);
+    BeliefPoint query(g[e].edgeStates[i]->state, -1.0);
 
     /// Timing block for model estimation
     std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
@@ -448,7 +466,6 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
 bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 {
   /// March along edge states with highest resolution
-  std::cout<<"In check edge"<<std::endl;
   mNumEdgeChecks++;
   //addAffectedEdges(e);
 
@@ -459,22 +476,16 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 
   unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
 
-  std::cout<<nStates<<" states in edge "<<std::endl;
-
   const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
 
-  std::vector<StateConPtr> edgeStates(nStates);
 
-  for(unsigned int i = 0; i < nStates; i++)
+  for(unsigned int i = 1; i < nStates-1; i++)
   {
-    edgeStates[i].reset(new StateCon(mSpace));
-    mSpace->interpolate(startState, endState,
-      1.0*(1+order[i].first)/(nStates+1), edgeStates[i]->state);
 
     mNumCollChecks++;
     /// Check and add to belief model
-    if(validityChecker->isValid(edgeStates[i]->state) == false) {
-      BeliefPoint toAdd(edgeStates[i]->state,1.0);
+    if(validityChecker->isValid(g[e].edgeStates[i]->state) == false) {
+      BeliefPoint toAdd(g[e].edgeStates[i]->state,1.0);
       mBeliefModel->addPoint(toAdd);
 
       /// Update edge properties to reflect blocked
@@ -484,7 +495,7 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
       return true;
     }
     else {
-      BeliefPoint toAdd(edgeStates[i]->state,0.0);
+      BeliefPoint toAdd(g[e].edgeStates[i]->state,0.0);
       mBeliefModel->addPoint(toAdd);
     }
   }
@@ -492,7 +503,6 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
   /// Update edge properties to reflect free
   g[e].blockedStatus = BatchingPOMP::FREE;
   g[e].probFree = 0.0;
-  std::cout<<"REturning false"<<std::endl;
   return false;
 }
 
@@ -624,7 +634,6 @@ bool BatchingPOMP::isVertexInadmissible(const Vertex& v) const
   }
 
   double bestCostThroughVertex{vertexDistFun(mStartVertex,v) + vertexDistFun(v,mGoalVertex)};
-  //std::cout<<"Best cost through "<<v<<" is "<<bestCostThroughVertex<<std::endl;
   return (bestCostThroughVertex > mBestPathCost);
 }
 
@@ -798,7 +807,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       else {
         /// No solution found
         OMPL_INFORM("All batches exhausted - no solution found!");
-        return ompl::base::PlannerStatus::ABORT;
+        return ompl::base::PlannerStatus::TIMEOUT;
       }
     }
 
@@ -858,7 +867,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
         );
       }
       else {
-        std::cout<<"Goal vertex is "<<mGoalVertex<<std::endl;
         boost::astar_search(
           g,
           mStartVertex,
@@ -880,19 +888,32 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     catch (const throw_visitor_exception & ex)
     {
     }
-
-    std::cout<<"Out of loop!"<<std::endl;
-    std::cout<<"Dist of goal is "<<startDist[mGoalVertex]<<std::endl;
-    std::cout<<"Predecessor of goal is "<<startPreds[mGoalVertex]<<std::endl;
+    
     if(startDist[mGoalVertex] == std::numeric_limits<double>::max()) {
-      /// Did not find a path
-      OMPL_INFORM("No further feasible paths to find in roadmap!");
-      if(mBestPathCost < std::numeric_limits<double>::max()) {
-        return ompl::base::PlannerStatus::EXACT_SOLUTION;
+      /// Did not find a path this time
+      OMPL_INFORM("No new feasible path found in this batch!");
+      if(mBatchingPtr->isExhausted()) {
+        if(mBestPathCost < std::numeric_limits<double>::max()) {
+          OMPL_INFORM("No further solutions on roadmap");
+          return ompl::base::PlannerStatus::EXACT_SOLUTION;
+        }
+        else {
+          OMPL_INFORM("No solution found on roadmap");
+          return ompl::base::PlannerStatus::TIMEOUT;
+        }
       }
       else {
-        return ompl::base::PlannerStatus::ABORT;
+        // Trigger a new batch
+        mIsInitSearchBatch = true;
+        if(mBestPathCost < std::numeric_limits<double>::max()) {
+          return ompl::base::PlannerStatus::APPROXIMATE_SOLUTION;
+        }
+        else {
+          // ABORT so solve() can be run again
+          return ompl::base::PlannerStatus::ABORT;
+        }
       }
+
     }
 
     /// Retrieve path and evaluate
@@ -910,7 +931,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       ePath.push_back(edgePair.first);
       vWalk = vPred;
     }
-    std::cout<<ePath.size()<<" is path size "<<std::endl;
     if(ePath.size() > 1) {
       std::reverse(ePath.begin(), ePath.end());
     }
@@ -921,8 +941,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     if(!pathBlocked) {
       mIsPathFound = true;
       currSolnCost = getPathDistance(ePath);
-
-      std::cout<<currSolnCost<<std::endl;
 
       if(mCurrentAlpha >= 1.0) {
         mIsInitSearchBatch = true;
@@ -953,7 +971,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
   }
 
   pdef_->addSolutionPath(ompl::base::PathPtr(path));
-  std::cout<<improvementFactor<<" is impr"<<std::endl;
+
   /// Prune vertices using current solution cost if sufficiently improved
   if(improvementFactor > mPruneThreshold) {
     std::function<bool(Vertex)> pruneFunction = 

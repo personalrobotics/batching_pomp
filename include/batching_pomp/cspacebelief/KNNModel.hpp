@@ -61,7 +61,7 @@ public:
   , mPriorWeight{_priorWeight}
   , mDistanceFunction{_distanceFunction}
   {
-    mBeliefPointNN.reset(new ompl::NearestNeighborsGNAT<BeliefPoint>());
+    mBeliefPointNN.reset(new ompl::NearestNeighborsLinear<BeliefPoint>());
     mBeliefPointNN->setDistanceFunction(mDistanceFunction);
   }
 
@@ -149,7 +149,7 @@ private:
   double mSupportThreshold;
   double mPrior;
   double mPriorWeight;
-  std::unique_ptr<ompl::NearestNeighborsGNAT<BeliefPoint>> mBeliefPointNN;
+  std::unique_ptr<ompl::NearestNeighbors<BeliefPoint>> mBeliefPointNN;
   std::function<double(const BeliefPoint&, const BeliefPoint&)> mDistanceFunction;
 };
 

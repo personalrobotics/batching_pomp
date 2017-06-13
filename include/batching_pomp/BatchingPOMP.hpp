@@ -85,6 +85,7 @@ public:
     double distance;
     double probFree;
     int blockedStatus;
+    std::vector< StateConPtr > edgeStates;
   };
 
   /// Graph definitions
@@ -160,6 +161,7 @@ public:
 
   /// Public helper methods
   double vertexDistFun(const Vertex& u, const Vertex& v) const;
+  void initializeEdgePoints(const Edge& e);
   double computeAndSetEdgeFreeProbability(const Edge& e);
   bool checkAndSetEdgeBlocked(const Edge& e);
 

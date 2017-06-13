@@ -147,9 +147,6 @@ public:
       BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mMaxRadius;
       BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;
     }
-
-    std::cout<<"Current radius for EB is "<<BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius<<std::endl;
-
   }
 
  
