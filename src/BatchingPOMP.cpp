@@ -134,12 +134,22 @@ public:
     // distance (one-time computation) based on provided distance function
     for(BatchingPOMP::Vertex nbr : vertexNbrs){
       // TODO : Find an efficient way to reject itself as a neighbour
-      if(nbr!=u && !edge(u,nbr,mPlanner.g).second){
+      if(nbr == u){
+        continue;
+      }
+      if(!edge(u,nbr,mPlanner.g).second){
         std::pair<BatchingPOMP::Edge,bool> new_edge = add_edge(u,nbr,mPlanner.g);
         mPlanner.g[new_edge.first].distance = mVertexDistFun(source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
         mPlanner.g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
         mPlanner.initializeEdgePoints(new_edge.first);
         mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
+      }
+      else{
+        // TODO - Compare this to updating in batch
+        // Existing edge - update probability of collision if alpha < 1.0 (measure matters)
+        if(mPlanner.getCurrentAlpha() < 1.0) {
+          mPlanner.computeAndSetEdgeFreeProbability(edge(u,nbr,mPlanner.g).first);
+        }
       }
     }
   }

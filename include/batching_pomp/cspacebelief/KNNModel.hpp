@@ -61,7 +61,7 @@ public:
   , mPriorWeight{_priorWeight}
   , mDistanceFunction{_distanceFunction}
   {
-    mBeliefPointNN.reset(new ompl::NearestNeighborsLinear<BeliefPoint>());
+    mBeliefPointNN.reset(new ompl::NearestNeighborsGNAT<BeliefPoint>());
     mBeliefPointNN->setDistanceFunction(mDistanceFunction);
   }
 
