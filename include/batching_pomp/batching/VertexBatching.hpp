@@ -121,10 +121,10 @@ public:
     }
 
     /// Update nearest neighbour structure with vertices
+    // TODO : Is this the most efficient way?
     if(idx > 0u) {
       vertex_vector.resize(idx);
       _vertexNN.add(vertex_vector);
-      std::cout<<"Added vector of vertices of size "<<idx<<std::endl;
     }
 
     /// Update size of next subgraph

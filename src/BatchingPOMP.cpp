@@ -80,8 +80,13 @@ class throw_visitor
 {
 
 public:
+  BatchingPOMP& mPlanner;
   BatchingPOMP::Vertex mVThrow;
-  throw_visitor(BatchingPOMP::Vertex _vThrow): mVThrow{_vThrow} {}
+  throw_visitor(BatchingPOMP& _planner,
+                BatchingPOMP::Vertex _vThrow)
+  : mPlanner(_planner)
+  , mVThrow{_vThrow} 
+  {}
   inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
   inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
@@ -90,7 +95,10 @@ public:
       throw throw_visitor_exception();
     }
   }
-  inline void examine_edge(BatchingPOMP::Edge e, const BatchingPOMP::Graph& g) {}
+  inline void examine_edge(BatchingPOMP::Edge e, const BatchingPOMP::Graph& g)
+  {
+    mPlanner.computeAndSetEdgeFreeProbability(e);
+  }
   inline void edge_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
   inline void edge_not_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
   inline void black_target(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
@@ -501,7 +509,7 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
       /// Update edge properties to reflect blocked
       g[e].blockedStatus = BatchingPOMP::BLOCKED;
       g[e].distance = std::numeric_limits<double>::max();
-      g[e].probFree = std::numeric_limits<double>::max();
+      g[e].probFree = 0.0;
       return true;
     }
     else {
@@ -512,7 +520,7 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 
   /// Update edge properties to reflect free
   g[e].blockedStatus = BatchingPOMP::FREE;
-  g[e].probFree = 0.0;
+  g[e].probFree = 1.0;
   return false;
 }
 
@@ -673,20 +681,9 @@ void BatchingPOMP::setup()
 
   /// Radius function type for Edge or Hybrid Batching
   if(mGraphType == "halton") {
-    // std::function<double(unsigned int)> thisHaltonRFn(
-    //   [this](unsigned int n)
-    //   {
-    //     return haltonRadiusFun(n);
-    //   });
-    //mRadiusFun = thisHaltonRFn;
     mRadiusFun = std::bind(&BatchingPOMP::haltonRadiusFun,this,std::placeholders::_1);
   }
   else if (mGraphType == "rgg") {
-    // std::function<double(unsigned int)> thisRggRFn(
-    //   [this](unsigned int n)
-    //   {
-    //     return rggRadiusFun(n);
-    //   });
     mRadiusFun = std::bind(&BatchingPOMP::rggRadiusFun,this,std::placeholders::_1);
   }
   else{
@@ -746,7 +743,13 @@ void BatchingPOMP::setup()
     
     mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
                   (std::move(sbp));
-    
+
+    // Setup all edges
+    EdgeIter ei, ei_end;
+    for (boost::tie(ei,ei_end)=edges(g); ei!=ei_end; ++ei)
+    {
+      initializeEdgePoints(*ei);
+    }
   }
   else {
     throw ompl::Exception("Invalid batching type specified - "+mBatchingType+"!");
@@ -785,13 +788,37 @@ void BatchingPOMP::setProblemDefinition(
   mVertexNN->add(mStartVertex);
 
   if(!validityChecker->isValid(goalState->state)) {
-    throw ompl::Exception("Start configuration is in collision!");
+    throw ompl::Exception("Goal configuration is in collision!");
   }
   mGoalVertex = boost::add_vertex(g);
   g[mGoalVertex].v_state = goalState;
   mVertexNN->add(mGoalVertex);
 
-  // TODO : ADD TO GRAPH FOR SINGLE!
+  /// For single batch, add start and goal to roadmap with startGoalRadius
+  if(mBatchingType == "single") {
+
+    VertexIter vi, vi_end;
+    for(boost::tie(vi,vi_end)=vertices(g); vi!=vi_end; ++vi) {
+      if(*vi == mStartVertex || *vi== mGoalVertex) {
+        continue;
+      }
+      double startDist = vertexDistFun(mStartVertex,*vi);
+      if(startDist < mStartGoalRadius) {
+        std::pair<Edge, bool> new_edge = add_edge(*vi,mStartVertex,g);
+        g[new_edge.first].blockedStatus = UNKNOWN;
+        g[new_edge.first].distance = startDist;
+        initializeEdgePoints(new_edge.first);
+      }
+
+      double goalDist = vertexDistFun(mGoalVertex,*vi);
+      if(goalDist < mStartGoalRadius) {
+        std::pair<Edge, bool> new_edge = add_edge(*vi,mGoalVertex,g);
+        g[new_edge.first].blockedStatus = UNKNOWN;
+        g[new_edge.first].distance = goalDist;
+        initializeEdgePoints(new_edge.first);
+      }
+    }
+  }
 
 }
 
@@ -863,7 +890,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           g,
           mStartVertex,
           *heuristicFn,
-          throw_visitor(mGoalVertex),
+          throw_visitor(*this, mGoalVertex),
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),

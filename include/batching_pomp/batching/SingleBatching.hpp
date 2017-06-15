@@ -56,7 +56,9 @@ public:
                 )
   : BatchingManager<Graph, VStateMap, StateCon, EDistance>
                   (_space,_stateMap,_distanceMap,_roadmapFileName,_fullRoadmap,_currentRoadmap)
-  {}
+  {
+    BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap;
+  }
 
   //////////////////////////////////////////////////
   /// Overriden methods
@@ -77,7 +79,7 @@ public:
 
     /// You know there is only one batch
     /// TODO - check that this works
-    BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap;
+    //BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap;
 
     ///Now remove all invalid vertices
     BatchingManager<Graph, VStateMap, StateCon, EDistance>::pruneVertices(_pruneFunction,_vertexNN);
