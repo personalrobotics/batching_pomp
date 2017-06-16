@@ -85,7 +85,7 @@ public:
   }
 
 
-  void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
+  void nextBatch(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
 
@@ -104,7 +104,7 @@ public:
     {
 
       /// Only add if best cost through vertex better than current solution
-      if(!_pruneFunction(*mCurrVertex)) {
+      if(!_pruneFunction(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*mCurrVertex].v_state->state)) {
         Vertex newVertex{boost::add_vertex(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap)};
         BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap[newVertex].v_state = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*mCurrVertex].v_state;
         vertex_vector[idx++] = newVertex;

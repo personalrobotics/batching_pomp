@@ -66,7 +66,7 @@ public:
   {
   }
 
-  void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
+  void nextBatch(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
     if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted){
@@ -78,9 +78,6 @@ public:
     ++BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumBatches;
 
     /// You know there is only one batch
-    /// TODO - check that this works
-    //BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap;
-
     ///Now remove all invalid vertices
     BatchingManager<Graph, VStateMap, StateCon, EDistance>::pruneVertices(_pruneFunction,_vertexNN);
 

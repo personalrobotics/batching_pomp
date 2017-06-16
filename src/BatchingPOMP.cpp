@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/util/Console.h>
 #include <ompl/util/Exception.h>
 
+#include <Eigen/Dense>
+
 #include "batching_pomp/BatchingPOMP.hpp"
 
 namespace batching_pomp{
@@ -207,7 +209,8 @@ double beliefDistanceFunction(
   std::function<double(const ompl::base::State*, const ompl::base::State*)>& _distFun,
   const BeliefPoint& _bp1, const BeliefPoint& _bp2)
 {
-  return _distFun(_bp1.state, _bp2.state);
+  Eigen::VectorXd diff{_bp1.stateValues - _bp2.stateValues};
+  return diff.norm();
 }
 
 /// Default constructor for CPP-level usage
@@ -432,21 +435,27 @@ void BatchingPOMP::initializeEdgePoints(const Edge& e)
   auto startState = g[source(e,g)].v_state->state;
   auto endState = g[target(e,g)].v_state->state;
 
+  // TODO : Ensure startState and endState added correctly here
   unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
-  g[e].edgeStates.resize(nStates);
+  g[e].edgeStates.resize(nStates+2);
 
-  for(unsigned int i = 0; i < nStates; i++)
+  for(unsigned int i = 0; i < nStates+2; i++)
   {
     g[e].edgeStates[i].reset(new StateCon(mSpace));
   }
 
-  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
+  if(nStates > 0u) {
+    const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
 
-  for(unsigned int i = 0; i < nStates; i++)
-  {
-    mSpace->interpolate(startState, endState,
-      1.0*(1+order[i].first)/(nStates+1), g[e].edgeStates[i]->state);
+    for(unsigned int i = 1; i < nStates+1; i++)
+    {
+      mSpace->interpolate(startState, endState,
+        1.0*(1+order[i].first)/(nStates+1), g[e].edgeStates[i]->state);
+    }
   }
+
+  mSpace->copyState(g[e].edgeStates[0]->state,startState);
+  mSpace->copyState(g[e].edgeStates[nStates+1]->state,endState);
 }
 
 
@@ -458,13 +467,13 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
   auto startState = g[source(e,g)].v_state->state;
   auto endState = g[target(e,g)].v_state->state;
 
-  unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
+  auto nStates = g[e].edgeStates.size();
   unsigned int stepSize{5};
   double result{1.0};
 
   for(unsigned int i = 0; i < nStates; i+=stepSize)
   {
-    BeliefPoint query(g[e].edgeStates[i]->state, -1.0);
+    BeliefPoint query(g[e].edgeStates[i]->state, mSpace->getDimension(), -1.0);
 
     /// Timing block for model estimation
     std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
@@ -492,18 +501,21 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
   auto startState = g[source(e,g)].v_state->state;
   auto endState = g[target(e,g)].v_state->state;
 
-  unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
+  auto nStates = g[e].edgeStates.size();
 
   const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
-
 
   for(unsigned int i = 1; i < nStates-1; i++)
   {
 
     mNumCollChecks++;
+
+    ompl::base::ScopedState<> toAddState(mSpace);
+
     /// Check and add to belief model
     if(validityChecker->isValid(g[e].edgeStates[i]->state) == false) {
-      BeliefPoint toAdd(g[e].edgeStates[i]->state,1.0);
+
+      BeliefPoint toAdd(g[e].edgeStates[i]->state,mSpace->getDimension(),1.0);
       mBeliefModel->addPoint(toAdd);
 
       /// Update edge properties to reflect blocked
@@ -513,7 +525,7 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
       return true;
     }
     else {
-      BeliefPoint toAdd(g[e].edgeStates[i]->state,0.0);
+      BeliefPoint toAdd(g[e].edgeStates[i]->state,mSpace->getDimension(),0.0);
       mBeliefModel->addPoint(toAdd);
     }
   }
@@ -532,7 +544,7 @@ double BatchingPOMP::haltonRadiusFun(unsigned int n) const
   auto dimDbl = static_cast<double>(mSpace->getDimension());
   auto cardDbl = static_cast<double>(n);
 
-  return std::pow(1.0 / cardDbl, 1/ dimDbl);
+  return 2.5*std::pow(1.0 / cardDbl, 1/ dimDbl);
 
 }
 
@@ -645,22 +657,25 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
 }
 
 
-bool BatchingPOMP::isVertexInadmissible(const Vertex& v) const
+bool BatchingPOMP::isVertexInadmissible(const ompl::base::State* vState) const
 {
   if(mBestPathCost >= std::numeric_limits<double>::max()) {
     return false;
   }
 
-  double bestCostThroughVertex{vertexDistFun(mStartVertex,v) + vertexDistFun(v,mGoalVertex)};
+  double bestCostThroughVertex
+    {mSpace->distance(g[mStartVertex].v_state->state,vState)
+      + mSpace->distance(g[mGoalVertex].v_state->state,vState)};
+
   return (bestCostThroughVertex > mBestPathCost);
 }
 
 
-bool BatchingPOMP::vertexPruneFunction(const Vertex& v) const
+bool BatchingPOMP::vertexPruneFunction(const ompl::base::State* vState) const
 {
   auto validityChecker = si_->getStateValidityChecker();
 
-  return (isVertexInadmissible(v)==true || validityChecker->isValid(g[v].v_state->state)==false);
+  return (isVertexInadmissible(vState)==true || validityChecker->isValid(vState)==false);
 
 }
 
@@ -858,7 +873,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     if(mIsInitSearchBatch) {
       mCurrentAlpha = 0.0;
       
-      std::function<bool(Vertex)> pruneFunction = 
+      std::function<bool(const ompl::base::State*)> pruneFunction = 
         std::bind(&BatchingPOMP::vertexPruneFunction, this,std::placeholders::_1);
       mBatchingPtr->nextBatch(pruneFunction, *mVertexNN);
     }
@@ -871,7 +886,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
 
     try
     {
-      // TODO - Make this more efficient!
       mNumSearches++;
       std::unique_ptr<boost::astar_heuristic<Graph, double>> heuristicFn;
 
@@ -884,7 +898,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
 
       mIsInitSearchBatch = false; // Either way, make it false
 
-      /// TODO : Find a less hacky way to do this
+      /// TODO : Assign to a generic visitor object?
       if(mBatchingType == "single") {
         boost::astar_search(
           g,
@@ -957,7 +971,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     Vertex vWalk{mGoalVertex};
 
     ePath.clear();
-
     while(vWalk != mStartVertex)
     {
       Vertex vPred{startPreds[vWalk]};
@@ -971,7 +984,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     if(ePath.size() > 1) {
       std::reverse(ePath.begin(), ePath.end());
     }
-
     /// If path is free, set current cost to it, increment alpha
     bool pathBlocked{checkAndUpdatePathBlocked(ePath)};
 
@@ -1011,7 +1023,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
 
   /// Prune vertices using current solution cost if sufficiently improved
   if(improvementFactor > mPruneThreshold) {
-    std::function<bool(Vertex)> pruneFunction = 
+    std::function<bool(const ompl::base::State* vState)> pruneFunction = 
         std::bind(&BatchingPOMP::isVertexInadmissible, this,std::placeholders::_1);
     mBatchingPtr->pruneVertices(pruneFunction,*mVertexNN);
   }

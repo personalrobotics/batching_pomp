@@ -203,8 +203,8 @@ private:
   void updateAffectedEdgeWeights();
   void addAffectedEdges(const Edge& e);
   bool checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath);
-  bool isVertexInadmissible(const Vertex& v) const ;
-  bool vertexPruneFunction(const Vertex& v) const;
+  bool isVertexInadmissible(const ompl::base::State* vState) const ;
+  bool vertexPruneFunction(const ompl::base::State* vState) const;
   double getPathDistance(const std::vector<Edge>& _ePath) const;
 };
 

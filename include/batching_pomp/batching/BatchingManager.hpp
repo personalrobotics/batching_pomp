@@ -107,8 +107,13 @@ public:
   {
     return mCurrRadius;
   }
+
+  const ompl::base::State* getVertexState(const Vertex& v) const
+  {
+    return mFullRoadmap[v].v_state->state;
+  }
   
-  void pruneVertices(const std::function<bool(Vertex)>& _pruneFunction,
+  void pruneVertices(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                      ompl::NearestNeighbors<Vertex>& _vertexNN)
   {
     /// TODO: Check if this preserves iterator stability
@@ -119,7 +124,7 @@ public:
 
     for(boost::tie(vi,vi_end) = vertices(mCurrentRoadmap); vi!=vi_end; ++vi)
     { 
-      if(_pruneFunction(*vi)) {
+      if(_pruneFunction(mCurrentRoadmap[*vi].v_state->state)) {
         verticesToRemove[vRemoved++] = *vi;
       }
     }
@@ -127,17 +132,16 @@ public:
     /// Now remove vertices
     for(size_t i=0; i<vRemoved; i++)
     {
-      clear_vertex(verticesToRemove[i],mCurrentRoadmap);
       _vertexNN.remove(verticesToRemove[i]);
+      clear_vertex(verticesToRemove[i],mCurrentRoadmap);
     }
-
   }
 
   /// Make any updates to batching manager with newest solution cost
   virtual void updateWithNewSolutionCost(double _newSolnCost) = 0;
 
   /// Nearest neighbour member may be nullptr (for single batch case)
-  virtual void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
+  virtual void nextBatch(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                          ompl::NearestNeighbors<Vertex>& _vertexNN) = 0;
 
 

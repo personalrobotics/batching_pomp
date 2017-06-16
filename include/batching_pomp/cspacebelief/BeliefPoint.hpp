@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define BATCHING_POMP_CSPACEBELIEF_BELIEFPOINT_HPP_
 
 #include <ompl/base/State.h>
+#include <Eigen/Dense>
 #include <functional>
 
 namespace batching_pomp {
@@ -39,13 +40,20 @@ namespace cspacebelief {
 
 struct BeliefPoint {
 
-  const ompl::base::State* state;
+  Eigen::VectorXd stateValues;
   double value;
 
   BeliefPoint():value(0.0){}
-  BeliefPoint(const ompl::base::State* _state, double _val)
-  : state{_state}
-  , value{_val} {}
+  BeliefPoint(const ompl::base::State* _state, 
+              unsigned int _dims, double _val)
+  :value{_val}
+  {
+    stateValues.resize(_dims);
+    double *values = _state->as<ompl::base::RealVectorStateSpace::StateType>()->values;
+    for(unsigned int i=0 ; i < _dims; i++) {
+      stateValues[i] = values[i];
+    }
+  }
 
   double getValue()
   {
@@ -55,12 +63,12 @@ struct BeliefPoint {
   // TODO : Are these operator overloads correct?
   bool operator==(const BeliefPoint& bp) const
   {
-    return (state==bp.state);
+    return (stateValues==bp.stateValues);
   }
 
   bool operator!=(const BeliefPoint& bp) const
   {
-    return (state!=bp.state);
+    return (stateValues!=bp.stateValues);
   }
 };
 

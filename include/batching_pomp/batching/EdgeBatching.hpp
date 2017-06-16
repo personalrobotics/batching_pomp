@@ -103,7 +103,7 @@ public:
     mMaxRadius = std::min(mMaxRadius,_newSolnCost);
   }
 
-  void nextBatch(const std::function<bool(Vertex)>& _pruneFunction,
+  void nextBatch(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
 
@@ -123,7 +123,7 @@ public:
 
       for(boost::tie(vi,vi_end)=vertices(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap); vi!=vi_end; ++vi)
       {
-        if(!_pruneFunction(*vi)) {
+        if(!_pruneFunction(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*vi].v_state->state)) {
           Vertex newVertex = boost::add_vertex(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap);
           BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap[newVertex].v_state = 
               BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*vi].v_state;
@@ -141,6 +141,8 @@ public:
     else {
       BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius * mRadiusInflFactor;
     }
+
+    std::cout<<"Current radius is "<<BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius<<std::endl;
 
     if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius > mMaxRadius)
     {
