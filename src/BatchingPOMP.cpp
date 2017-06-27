@@ -155,7 +155,6 @@ public:
         mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
       }
       else{
-        // TODO - Compare this to updating in batch
         // Existing edge - update probability of collision if alpha < 1.0 (measure matters)
         if(mPlanner.getCurrentAlpha() < 1.0) {
           mPlanner.computeAndSetEdgeFreeProbability(edge(u,nbr,mPlanner.g).first);
@@ -435,7 +434,6 @@ void BatchingPOMP::initializeEdgePoints(const Edge& e)
   auto startState = g[source(e,g)].v_state->state;
   auto endState = g[target(e,g)].v_state->state;
 
-  // TODO : Ensure startState and endState added correctly here
   unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
   
   if(nStates < 2u) {
