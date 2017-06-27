@@ -48,13 +48,8 @@ struct BeliefPoint {
               unsigned int _dims, double _val)
   :value{_val}
   {
-    stateValues.resize(_dims);
-    // TODO : Do this directly
     double *values = _state->as<ompl::base::RealVectorStateSpace::StateType>()->values;
-    for(unsigned int i=0 ; i < _dims; i++) {
-      stateValues[i] = values[i];
-    }
-    //stateValues = Map<VectorXd>(values,_dims);
+    stateValues = Eigen::Map<Eigen::VectorXd>(values,_dims);
   }
 
   double getValue()
@@ -62,7 +57,6 @@ struct BeliefPoint {
     return value;
   }
 
-  // TODO : Are these operator overloads correct?
   bool operator==(const BeliefPoint& bp) const
   {
     return (stateValues==bp.stateValues);
