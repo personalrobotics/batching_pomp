@@ -437,25 +437,25 @@ void BatchingPOMP::initializeEdgePoints(const Edge& e)
 
   // TODO : Ensure startState and endState added correctly here
   unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
-  g[e].edgeStates.resize(nStates+2);
+  
+  if(nStates < 2u) {
+    nStates = 2u; // Just start and goal
+  }
 
-  for(unsigned int i = 0; i < nStates+2; i++)
+  g[e].edgeStates.resize(nStates);
+
+  for(unsigned int i = 0; i < nStates; i++)
   {
     g[e].edgeStates[i].reset(new StateCon(mSpace));
   }
 
-  if(nStates > 0u) {
-    const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
+  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
 
-    for(unsigned int i = 1; i < nStates+1; i++)
-    {
-      mSpace->interpolate(startState, endState,
-        1.0*(1+order[i].first)/(nStates+1), g[e].edgeStates[i]->state);
-    }
+  for(unsigned int i = 0; i < nStates; i++)
+  {
+    mSpace->interpolate(startState, endState,
+      1.0*(1+order[i].first)/(nStates+1), g[e].edgeStates[i]->state);
   }
-
-  mSpace->copyState(g[e].edgeStates[0]->state,startState);
-  mSpace->copyState(g[e].edgeStates[nStates+1]->state,endState);
 }
 
 
@@ -494,7 +494,6 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 {
   /// March along edge states with highest resolution
   mNumEdgeChecks++;
-  //addAffectedEdges(e);
 
   auto validityChecker = si_->getStateValidityChecker();
   
@@ -503,14 +502,13 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 
   auto nStates = g[e].edgeStates.size();
 
-  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
-
   for(unsigned int i = 1; i < nStates-1; i++)
   {
 
     mNumCollChecks++;
 
-    ompl::base::ScopedState<> toAddState(mSpace);
+    ompl::base::ScopedState<> sstate(mSpace);
+    sstate = g[e].edgeStates[i]->state;
 
     /// Check and add to belief model
     if(validityChecker->isValid(g[e].edgeStates[i]->state) == false) {
@@ -564,79 +562,6 @@ double BatchingPOMP::rggRadiusFun(unsigned int n) const
   auto cardDbl = static_cast<double>(n);
 
   return minRggR * std::pow(std::log(cardDbl) / cardDbl, 1 / dimDbl);
-}
-
-void BatchingPOMP::updateAffectedEdgeWeights()
-{
-  for(auto e : mEdgesToUpdate)
-  {
-    if(g[e].blockedStatus == BatchingPOMP::UNKNOWN) {
-      computeAndSetEdgeFreeProbability(e);
-    }
-  }
-
-  mEdgesToUpdate.clear();
-}
-
-
-void BatchingPOMP::addAffectedEdges(const Edge& e)
-{
-  // TODO : Change this to be based on model radius (and what edges are currently in there)
-  // I.E you'll want to lookup mVertexNN and add edge if it exists
-
-  /// For now, just add all out_edges and out_edges from neigbours
-  Vertex u{source(e,g)};
-  Vertex v{target(e,g)};
-
-  OutEdgeIter ei;
-  OutEdgeIter ei_end;
-
-  for(boost::tie(ei,ei_end)=out_edges(u,g); ei!=ei_end; ++ei)
-  {
-    if(g[*ei].blockedStatus == BatchingPOMP::UNKNOWN) {
-
-      /// Add edge if not already there
-      if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei) != mEdgesToUpdate.end()) {
-        mEdgesToUpdate.push_back(*ei);
-      }
-
-      Vertex nbr = target(*ei,g);
-      OutEdgeIter ei_in,ei_in_end;
-
-      for(boost::tie(ei_in,ei_in_end)=out_edges(nbr,g); ei_in!=ei_in_end; ++ei)
-      {
-        Vertex nbr_nbr = target(*ei_in,g);
-        if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei_in) != mEdgesToUpdate.end()) {
-          mEdgesToUpdate.push_back(*ei_in);
-        }
-      }
-
-    }
-  }
-
-  /// Do the same for target
-  for(boost::tie(ei,ei_end)=out_edges(v,g); ei!=ei_end; ++ei)
-  {
-    if(g[*ei].blockedStatus == BatchingPOMP::UNKNOWN) {
-      /// Add edge if not already there
-      if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei) != mEdgesToUpdate.end()) {
-        mEdgesToUpdate.push_back(*ei);
-      }
-
-      Vertex nbr = target(*ei,g);
-      OutEdgeIter ei_in,ei_in_end;
-
-      for(boost::tie(ei_in,ei_in_end)=out_edges(nbr,g); ei_in!=ei_in_end; ++ei)
-      {
-        Vertex nbr_nbr = target(*ei_in,g);
-        if(find(mEdgesToUpdate.begin(), mEdgesToUpdate.end(), *ei_in) != mEdgesToUpdate.end()) {
-          mEdgesToUpdate.push_back(*ei_in);
-        }
-      }
-
-    }
-  }
-
 }
 
 
@@ -998,9 +923,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
         mCurrentAlpha = std::min(mCurrentAlpha+mIncrement, 1.0);
       }
     }
-
-    /// Path has been checked either way so update
-    // /updateAffectedEdgeWeights();
   }
 
 

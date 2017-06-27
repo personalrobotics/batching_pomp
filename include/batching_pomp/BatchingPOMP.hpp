@@ -174,7 +174,6 @@ private:
   util::BisectPerm mBisectPermObj;
   Vertex mStartVertex;
   Vertex mGoalVertex;
-  std::vector<Edge> mEdgesToUpdate;
   std::vector<Edge> mCurrBestPath;
 
   /// Planner parameters
@@ -200,8 +199,6 @@ private:
   /// Private helper methods
   double haltonRadiusFun(unsigned int n) const;
   double rggRadiusFun(unsigned int n) const;
-  void updateAffectedEdgeWeights();
-  void addAffectedEdges(const Edge& e);
   bool checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath);
   bool isVertexInadmissible(const ompl::base::State* vState) const ;
   bool vertexPruneFunction(const ompl::base::State* vState) const;

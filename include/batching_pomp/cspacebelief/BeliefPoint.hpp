@@ -49,10 +49,12 @@ struct BeliefPoint {
   :value{_val}
   {
     stateValues.resize(_dims);
+    // TODO : Do this directly
     double *values = _state->as<ompl::base::RealVectorStateSpace::StateType>()->values;
     for(unsigned int i=0 ; i < _dims; i++) {
       stateValues[i] = values[i];
     }
+    //stateValues = Map<VectorXd>(values,_dims);
   }
 
   double getValue()
