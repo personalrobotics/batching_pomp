@@ -570,16 +570,18 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
 {
   std::vector<Edge> selectedEPath = mSelector->selectEdges(g,_ePath);
 
+  bool pathBlocked{false};
+
   for(Edge e : selectedEPath)
   {
     if(g[e].blockedStatus == BatchingPOMP::UNKNOWN) {
       
       if(checkAndSetEdgeBlocked(e)) {
-        return true;
+        pathBlocked = true;
       }
     }
   }
-  return false;
+  return pathBlocked;
 }
 
 
