@@ -152,7 +152,10 @@ public:
   inline unsigned int getNumEdgeChecks(){ return mNumEdgeChecks;}
   inline unsigned int getNumCollChecks(){ return mNumCollChecks;}
   inline unsigned int getNumSearches(){ return mNumSearches;}
+  inline unsigned int getNumLookups(){ return mNumLookups;}
   inline double getLookupTime(){ return mLookupTime;}
+  inline double getSearchTime(){ return mSearchTime;}
+  inline double getCollCheckTime(){return mCollCheckTime;}
 
   /// OMPL required methods
   void setProblemDefinition(const ompl::base::ProblemDefinitionPtr & pdef);
@@ -194,7 +197,11 @@ private:
   unsigned int mNumEdgeChecks;
   unsigned int mNumCollChecks;
   unsigned int mNumSearches;
+  unsigned int mNumLookups;
   double mLookupTime;
+  double mCollCheckTime;
+  double mSearchTime;
+
 
   /// Private helper methods
   double haltonRadiusFun(unsigned int n) const;

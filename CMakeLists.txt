@@ -21,8 +21,6 @@ catkin_package(
    DEPENDS Boost Eigen
 )
 
-set(CMAKE_BUILD_TYPE Release)
-
 include_directories(
     include
     ${CATKIN_DEVEL_PREFIX}/include
@@ -46,9 +44,3 @@ target_link_libraries(test_model ${PROJECT_NAME} ${OMPL_LIBRARIES})
 
 add_executable(bare_planner ignore/test_bare_planner.cpp)
 target_link_libraries(bare_planner ${PROJECT_NAME} ${OMPL_LIBRARIES} ${Boost_LIBRARIES} ${OpenCV_LIBS})
-
-install(TARGETS ${PROJECT_NAME}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)

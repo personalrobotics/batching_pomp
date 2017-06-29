@@ -136,10 +136,8 @@ public:
     }
 
     std::vector<BatchingPOMP::Vertex> vertexNbrs;
-    //mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
+    mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
 
-    unsigned int currK{static_cast<unsigned int>(1.44*std::log(num_vertices(mPlanner.g)))};
-    mVertexNN.nearestK(u,currK,vertexNbrs);
 
     // Now iterate through neighbors and check if edge exists between
     // u and neighbour. If it does not exist, create it AND set its
@@ -243,7 +241,10 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 , mNumEdgeChecks{0u}
 , mNumCollChecks{0u}
 , mNumSearches{0u}
+, mNumLookups{0u}
 , mLookupTime{0.0}
+, mCollCheckTime{0.0}
+, mSearchTime{0.0}
 {
   /// Create vertex nearest neighbour manager
   mVertexNN.reset(new ompl::NearestNeighborsGNAT<Vertex>());
@@ -278,7 +279,10 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
 , mNumEdgeChecks{0u}
 , mNumCollChecks{0u}
 , mNumSearches{0u}
+, mNumLookups{0u}
 , mLookupTime{0.0}
+, mCollCheckTime{0.0}
+, mSearchTime{0.0}
 {
   /// Bind distance functions for model manager
   std::function<double(const ompl::base::State*, const ompl::base::State*)>
@@ -373,15 +377,6 @@ void BatchingPOMP::setPruneThreshold(double _pruneThreshold)
   mPruneThreshold = _pruneThreshold;
 }
 
-// double BatchingPOMP::getCheckRadius() const
-// {
-//   return mCheckRadius;
-// }
-
-// void BatchingPOMP::setCheckRadius(double _checkRadius)
-// {
-//   mCheckRadius = _checkRadius;
-// }
 
 std::string BatchingPOMP::getGraphType() const
 {
@@ -475,7 +470,8 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
   {
     BeliefPoint query(g[e].edgeStates[i]->state, mSpace->getDimension(), -1.0);
 
-    /// Timing block for model estimation
+    /// Timing and counting block for model estimation
+    mNumLookups++;
     std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
     double collProb{mBeliefModel->estimate(query)};
     std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
@@ -505,14 +501,18 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 
   for(unsigned int i = 1; i < nStates-1; i++)
   {
-
-    mNumCollChecks++;
-
     ompl::base::ScopedState<> sstate(mSpace);
     sstate = g[e].edgeStates[i]->state;
 
-    /// Check and add to belief model
-    if(validityChecker->isValid(g[e].edgeStates[i]->state) == false) {
+    /// Counting and timing block for collision checks
+    mNumCollChecks++;
+    std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
+    bool checkResult{validityChecker->isValid(g[e].edgeStates[i]->state)};
+    std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+    std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+    mCollCheckTime += elapsedSeconds.count();
+    
+    if(checkResult == false) {
 
       BeliefPoint toAdd(g[e].edgeStates[i]->state,mSpace->getDimension(),1.0);
       mBeliefModel->addPoint(toAdd);
@@ -762,7 +762,6 @@ void BatchingPOMP::setProblemDefinition(
       }
     }
   }
-
 }
 
 
@@ -827,6 +826,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       mIsInitSearchBatch = false; // Either way, make it false
 
       /// TODO : Assign to a generic visitor object?
+      std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
       if(mBatchingType == "single") {
         boost::astar_search(
           g,
@@ -863,6 +863,9 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           double()
         );
       }
+      std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+      std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+      mSearchTime += elapsedSeconds.count();
     }
     catch (const throw_visitor_exception & ex)
     {
@@ -933,6 +936,8 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
   double improvementFactor{mBestPathCost/currSolnCost};
   mBestPathCost = currSolnCost;
   mCurrBestPath = ePath;
+
+  mBatchingPtr->updateWithNewSolutionCost(mBestPathCost);
 
   ompl::geometric::PathGeometric* path = new ompl::geometric::PathGeometric(si_);
   VertexIndexMap vertex_id = get(boost::vertex_index,g);
