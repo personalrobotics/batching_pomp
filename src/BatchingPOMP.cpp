@@ -463,7 +463,7 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
   auto endState = g[target(e,g)].v_state->state;
 
   auto nStates = g[e].edgeStates.size();
-  unsigned int stepSize{5};
+  unsigned int stepSize{sqrt(nStates)};
   double result{1.0};
 
   for(unsigned int i = 0; i < nStates; i+=stepSize)
