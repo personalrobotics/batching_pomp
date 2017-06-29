@@ -81,6 +81,7 @@ public:
     mKNN = _knn;
   }
 
+
   //////////////////////////////////////////////////
   // Overriden methods
   void addPoint(const BeliefPoint& data) override

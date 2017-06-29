@@ -178,6 +178,7 @@ private:
   Vertex mStartVertex;
   Vertex mGoalVertex;
   std::vector<Edge> mCurrBestPath;
+  std::set<Edge> mEdgesToUpdate;
 
   /// Planner parameters
   double mCurrentAlpha;
@@ -207,6 +208,8 @@ private:
   double haltonRadiusFun(unsigned int n) const;
   double rggRadiusFun(unsigned int n) const;
   bool checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath);
+  void addAffectedEdges(const Edge& e);
+  void updateAffectedEdgeWeights();
   bool isVertexInadmissible(const ompl::base::State* vState) const ;
   bool vertexPruneFunction(const ompl::base::State* vState) const;
   double getPathDistance(const std::vector<Edge>& _ePath) const;
