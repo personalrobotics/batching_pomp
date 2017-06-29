@@ -142,8 +142,6 @@ public:
       BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius * mRadiusInflFactor;
     }
 
-    std::cout<<"Current radius is "<<BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius<<std::endl;
-
     if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius > mMaxRadius)
     {
       BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mMaxRadius;

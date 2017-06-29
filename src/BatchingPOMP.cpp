@@ -73,7 +73,6 @@ const double get(const ExpWeightMap& _ewMap, const BatchingPOMP::Edge& e)
   double w_l{_ewMap.mPlanner.g[e].distance};
 
   double exp_cost{alpha*w_l + (1-alpha)*w_m};
-
   return exp_cost;
 }
 
@@ -137,7 +136,10 @@ public:
     }
 
     std::vector<BatchingPOMP::Vertex> vertexNbrs;
-    mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
+    //mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
+
+    unsigned int currK{static_cast<unsigned int>(1.44*std::log(num_vertices(mPlanner.g)))};
+    mVertexNN.nearestK(u,currK,vertexNbrs);
 
     // Now iterate through neighbors and check if edge exists between
     // u and neighbour. If it does not exist, create it AND set its
@@ -286,7 +288,7 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
     bpDistFun = std::bind(beliefDistanceFunction,spaceDistFun,std::placeholders::_1,std::placeholders::_2);
 
   /// Create model manager with default parameters
-  mBeliefModel.reset(new cspacebelief::KNNModel(15,2.0,0.5,0.25,bpDistFun));
+  mBeliefModel.reset(new cspacebelief::KNNModel(15,0.5,0.25,bpDistFun));
 
   /// Create vertex nearest neighbour manager
   mVertexNN.reset(new ompl::NearestNeighborsGNAT<Vertex>());
@@ -484,6 +486,7 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
   }
 
   g[e].probFree = result;
+
   return result;
 }
 
@@ -614,6 +617,8 @@ double BatchingPOMP::getPathDistance(const std::vector<Edge>& _ePath) const
 
 void BatchingPOMP::setup()
 {
+
+  // TODO - Make scaling params
 
   Planner::setup();
 

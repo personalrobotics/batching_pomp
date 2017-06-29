@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <exception>
 #include <memory>
+#include <cmath>
 #include <ompl/datastructures/NearestNeighbors.h>
 #include <ompl/datastructures/NearestNeighborsLinear.h>
 #include <ompl/datastructures/NearestNeighborsGNAT.h>
@@ -49,14 +50,12 @@ class KNNModel : public virtual Model<BeliefPoint>
 public:
 
   /// \param[in] _KNN The value of k for KNN lookup
-  /// \param[in] _supportThreshold The distance threshold to consider nearest neighbors for
   /// \param[in] _distanceFunction The ompl NearestNeighbours Distance Function to set 
-  KNNModel(size_t _KNN, double _supportThreshold,
+  KNNModel(size_t _KNN,
            double _prior, double _priorWeight,
            const std::function<double(const BeliefPoint&, const BeliefPoint&)>& _distanceFunction)
   : mNumPoints{0}
   , mKNN{_KNN}
-  , mSupportThreshold{_supportThreshold}
   , mPrior{_prior}
   , mPriorWeight{_priorWeight}
   , mDistanceFunction{_distanceFunction}
@@ -80,11 +79,6 @@ public:
   void setKNN(size_t _knn)
   {
     mKNN = _knn;
-  }
-
-  void setSupportThreshold(double _supportThreshold)
-  {
-    mSupportThreshold = _supportThreshold;
   }
 
   //////////////////////////////////////////////////
@@ -119,25 +113,19 @@ public:
 
     Eigen::VectorXd weights(knn);
     Eigen::VectorXd values(knn);
-    unsigned int pointsUsed{0u};
 
     for(size_t i = 0; i < knn; i++) {
-      double distance = mDistanceFunction(query, neighboursVect[i]);
-
-      if(distance < mSupportThreshold) {
-        ++pointsUsed;
-        weights[i] = 1.0/distance;
-        values[i] = neighboursVect[i].getValue(); // Second element of pair is value
-      }
+      double distance = std::max(0.0001,mDistanceFunction(query, neighboursVect[i]));
+      weights[i] = 1.0/distance;
+      values[i] = neighboursVect[i].getValue(); // Second element of pair is value
     }
     double result{mPrior};
 
-    if(pointsUsed > 0u) {
-      result = weights.dot(values) / weights.sum();
+    result = weights.dot(values) / weights.sum();
 
-      // Do (result + pw*p) / (1 + pw) for smoothing by prior
-      result = (result + mPriorWeight*mPrior) / (1 + mPriorWeight);
-    }
+    // Do (result + pw*p) / (1 + pw) for smoothing by prior
+    result = (result + mPriorWeight*mPrior) / (1 + mPriorWeight);
+    
 
     return result;
   }
@@ -146,7 +134,6 @@ private:
     
   size_t mNumPoints;
   size_t mKNN;
-  double mSupportThreshold;
   double mPrior;
   double mPriorWeight;
   std::unique_ptr<ompl::NearestNeighbors<BeliefPoint>> mBeliefPointNN;

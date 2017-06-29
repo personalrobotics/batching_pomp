@@ -133,9 +133,6 @@ public:
     boost::dynamic_properties props;
     props.property("state",
       RoadmapFromFilePutStateMap<VStateMap,StateCon>(_stateMap, mSpace, mDim));
-    // props.property("state",
-    //   batching_pomp::util::make_rvstate_map_string_adaptor
-    //   (_stateMap,mSpace->as<ompl::base::RealVectorStateSpace>()));
 
     boost::read_graphml(fp, _roadmap, props);
   }
