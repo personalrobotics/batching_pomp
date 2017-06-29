@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <exception>
 #include <chrono>
 #include <cmath>
+#include <unordered_set>
 
 #include <ompl/base/goals/GoalState.h>
 #include <ompl/base/goals/GoalStates.h>
@@ -153,12 +154,6 @@ public:
         mPlanner.g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
         mPlanner.initializeEdgePoints(new_edge.first);
         mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
-      }
-      else{
-        // Existing edge - update probability of collision if alpha < 1.0 (measure matters)
-        if(mPlanner.getCurrentAlpha() < 1.0) {
-          mPlanner.computeAndSetEdgeFreeProbability(edge(u,nbr,mPlanner.g).first);
-        }
       }
     }
   }
@@ -582,6 +577,41 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
   return false;
 }
 
+void BatchingPOMP::addAffectedEdges(const Edge& e)
+{
+  Vertex u = source(e,g);
+  Vertex v = target(e,g);
+
+  OutEdgeIter ei, ei_end;
+
+  for (boost::tie(ei,ei_end)=out_edges(u,g); ei!=ei_end; ++ei)
+  {
+    if(mEdgesToUpdate.find(*ei) == mEdgesToUpdate.end()) {
+      mEdgesToUpdate.insert(*ei);
+    }
+  }
+
+  for (boost::tie(ei,ei_end)=out_edges(v,g); ei!=ei_end; ++ei)
+  {
+    if(mEdgesToUpdate.find(*ei) == mEdgesToUpdate.end()) {
+      mEdgesToUpdate.insert(*ei);
+    }
+  }
+}
+
+
+void BatchingPOMP::updateAffectedEdgeWeights()
+{
+  for(const auto e : mEdgesToUpdate)
+  {
+    if(g[e].blockedStatus == BatchingPOMP::UNKNOWN) {
+      computeAndSetEdgeFreeProbability(e);
+    }
+  }
+
+  mEdgesToUpdate.clear();
+}
+
 
 bool BatchingPOMP::isVertexInadmissible(const ompl::base::State* vState) const
 {
@@ -917,6 +947,8 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     }
     /// If path is free, set current cost to it, increment alpha
     bool pathBlocked{checkAndUpdatePathBlocked(ePath)};
+
+    updateAffectedEdgeWeights();
 
     if(!pathBlocked) {
       mIsPathFound = true;
