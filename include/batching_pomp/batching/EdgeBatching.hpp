@@ -132,7 +132,6 @@ public:
       }
 
       /// Truncate to actual number of samples
-      /// TODO : Make sure this works!
       vertex_vector.resize(idx);
       _vertexNN.add(vertex_vector);
 

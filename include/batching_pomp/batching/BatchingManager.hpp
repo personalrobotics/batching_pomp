@@ -116,7 +116,6 @@ public:
   void pruneVertices(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                      ompl::NearestNeighbors<Vertex>& _vertexNN)
   {
-    /// TODO: Check if this preserves iterator stability
     VertexIter vi,vi_end;
     std::vector<Vertex> verticesToRemove;
     verticesToRemove.reserve(num_vertices(mCurrentRoadmap));

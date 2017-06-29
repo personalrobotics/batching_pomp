@@ -14,7 +14,6 @@ find_package(OMPL REQUIRED)
 find_package(Boost REQUIRED COMPONENTS graph program_options)
 find_package(Eigen3 REQUIRED)
 
-# TODO - Figure out if ROS Kinetic using std::shared_ptr affects
 
 catkin_package(
    INCLUDE_DIRS include ${CATKIN_DEVEL_PREFIX}/include
