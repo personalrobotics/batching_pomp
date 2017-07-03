@@ -69,7 +69,6 @@ const double get(const ExpWeightMap& _ewMap, const BatchingPOMP::Edge& e)
     return (alpha*_ewMap.mPlanner.g[e].distance);
   }
 
-  
   double w_m{-std::log(_ewMap.mPlanner.g[e].probFree)};
   double w_l{_ewMap.mPlanner.g[e].distance};
 
@@ -212,18 +211,19 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
                            std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
                            std::shared_ptr< cspacebelief::Model<BeliefPoint> > _beliefModel,
                            std::unique_ptr< util::Selector<Graph> > _selector,
-                           double _increment,
+                           const std::string& _roadmapFileName,
                            double _startGoalRadius,
-                           double _pruneThreshold,
-                           const std::string& _roadmapFileName)
+                           double _increment,
+                           double _pruneThreshold)
 : ompl::base::Planner(si,"BatchingPOMP")
 , mSpace(si->getStateSpace())
 , mBatchingPtr{_batchingPtr}
 , mBeliefModel{_beliefModel}
 , mSelector{std::move(_selector)}
+, mRoadmapName{_roadmapFileName}
 , mCurrentAlpha{0.0}
-, mIncrement{_increment}
 , mStartGoalRadius{_startGoalRadius}
+, mIncrement{_increment}
 , mPruneThreshold{_pruneThreshold}
 , mIsInitSearchBatch{true}
 , mIsPathFound{false}
@@ -233,7 +233,6 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 , mGraphType{""}
 , mBatchingType{""}
 , mSelectorType{""}
-, mRoadmapName{_roadmapFileName}
 , mNumEdgeChecks{0u}
 , mNumCollChecks{0u}
 , mNumSearches{0u}
@@ -260,10 +259,11 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
 : ompl::base::Planner(si,"BatchingPOMP")
 , mSpace(si->getStateSpace())
+, mRoadmapName{""}
 , mCurrentAlpha{0.0}
-, mIncrement{0.0}
 , mStartGoalRadius{0.0}
-, mPruneThreshold{DEFAULTPRUNETHRESHOLD}
+, mIncrement{0.2}
+, mPruneThreshold{0.05}
 , mIsInitSearchBatch{true}
 , mIsPathFound{false}
 , mCheckRadius{0.5*mSpace->getLongestValidSegmentLength()}
@@ -272,7 +272,6 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
 , mGraphType{""}
 , mBatchingType{""}
 , mSelectorType{""}
-, mRoadmapName{""}
 , mNumEdgeChecks{0u}
 , mNumCollChecks{0u}
 , mNumSearches{0u}
@@ -869,7 +868,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       mIsInitSearchBatch = false; // Either way, make it false
 
       /// TODO : Assign to a generic visitor object?
-      std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
       if(mBatchingType == "single") {
         boost::astar_search(
           g,
@@ -889,6 +887,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
         );
       }
       else {
+        std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
         boost::astar_search(
           g,
           mStartVertex,
@@ -905,10 +904,11 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           std::numeric_limits<double>::max(),
           double()
         );
+        std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+        std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+        mSearchTime += elapsedSeconds.count();
       }
-      std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
-      std::chrono::duration<double> elapsedSeconds{endTime-startTime};
-      mSearchTime += elapsedSeconds.count();
+      
     }
     catch (const throw_visitor_exception & ex)
     {

@@ -16,7 +16,7 @@ find_package(Eigen3 REQUIRED)
 
 
 catkin_package(
-   INCLUDE_DIRS include ${CATKIN_DEVEL_PREFIX}/include
+   INCLUDE_DIRS include
    LIBRARIES ${PROJECT_NAME}
    DEPENDS Boost Eigen
 )
@@ -37,10 +37,3 @@ link_libraries(
 
 add_library(${PROJECT_NAME}
 	src/BatchingPOMP.cpp)
-
-
-add_executable(test_model ignore/test_model.cpp)
-target_link_libraries(test_model ${PROJECT_NAME} ${OMPL_LIBRARIES})
-
-add_executable(bare_planner ignore/test_bare_planner.cpp)
-target_link_libraries(bare_planner ${PROJECT_NAME} ${OMPL_LIBRARIES} ${Boost_LIBRARIES} ${OpenCV_LIBS})

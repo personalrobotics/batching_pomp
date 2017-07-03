@@ -120,10 +120,10 @@ public:
                std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
                std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > _beliefModel,
                std::unique_ptr< util::Selector<Graph> > _selector,
-               double _increment,
+               const std::string& _roadmapFileName,
                double _startGoalRadius,
-               double _pruneThreshold,
-               const std::string& _roadmapFileName);
+               double _increment = 0.2,
+               double _pruneThreshold = 0.05);
 
   ~BatchingPOMP(void);
 
