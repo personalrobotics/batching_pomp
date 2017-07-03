@@ -189,6 +189,7 @@ private:
   bool mIsPathFound;
   double mCheckRadius;
   double mBestPathCost;
+  bool mUsingSelector;
   std::string mGraphType; // Optional - to be used for non-CPP level calls
   std::string mBatchingType; // Optional - to be used for non-CPP level calls
   std::string mSelectorType; // Optional - to be used for non-CPP level calls

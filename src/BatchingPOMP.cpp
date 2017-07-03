@@ -229,6 +229,7 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 , mIsPathFound{false}
 , mCheckRadius{0.5*mSpace->getLongestValidSegmentLength()}
 , mBestPathCost{std::numeric_limits<double>::max()}
+, mUsingSelector{false}
 , mGraphType{""}
 , mBatchingType{""}
 , mSelectorType{""}
@@ -267,6 +268,7 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
 , mIsPathFound{false}
 , mCheckRadius{0.5*mSpace->getLongestValidSegmentLength()}
 , mBestPathCost{std::numeric_limits<double>::max()}
+, mUsingSelector{false}
 , mGraphType{""}
 , mBatchingType{""}
 , mSelectorType{""}
@@ -563,6 +565,9 @@ double BatchingPOMP::rggRadiusFun(unsigned int n) const
 
 bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
 {
+  // If selector type is set, then terminate as soon as an edge
+  // is found to be in collision
+
   std::vector<Edge> selectedEPath = mSelector->selectEdges(g,_ePath);
 
   bool pathBlocked{false};
@@ -573,6 +578,9 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
       
       if(checkAndSetEdgeBlocked(e)) {
         pathBlocked = true;
+        if(mUsingSelector) {
+          return true;
+        }
       }
     }
   }
@@ -730,11 +738,14 @@ void BatchingPOMP::setup()
     throw ompl::Exception("Invalid batching type specified - "+mBatchingType+"!");
   }
 
-  /// Create selector with the type specified
+  /// Create selector with the type specified (normal if none)
   if(mSelectorType == "") {
-    throw ompl::Exception("Selector type must be set before creation");
+    mSelector.reset(new batching_pomp::util::Selector<Graph>("normal"));
   }
-  mSelector.reset(new batching_pomp::util::Selector<Graph>(mSelectorType));
+  else {
+    mUsingSelector = true;
+    mSelector.reset(new batching_pomp::util::Selector<Graph>(mSelectorType));
+  }
 }
 
 
