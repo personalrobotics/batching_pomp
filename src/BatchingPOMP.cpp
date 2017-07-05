@@ -147,9 +147,9 @@ public:
       if(nbr == u){
         continue;
       }
-      if(!edge(u,nbr,mPlanner.g).second){
-        std::pair<BatchingPOMP::Edge,bool> new_edge = add_edge(u,nbr,mPlanner.g);
-        mPlanner.g[new_edge.first].distance = mVertexDistFun(source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
+      if(!boost::edge(u,nbr,mPlanner.g).second){
+        std::pair<BatchingPOMP::Edge,bool> new_edge = boost::add_edge(u,nbr,mPlanner.g);
+        mPlanner.g[new_edge.first].distance = mVertexDistFun(boost::source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
         mPlanner.g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
         mPlanner.initializeEdgePoints(new_edge.first);
         mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
