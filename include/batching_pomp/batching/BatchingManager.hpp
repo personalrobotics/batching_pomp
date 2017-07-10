@@ -58,6 +58,7 @@ public:
   , mNumBatches{0u}
   , mExhausted{false}
   , mCurrRadius{0.0}
+  , mCurrK{0u}
   {
     auto file_roadmap_ptr = std::make_shared<
       batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
@@ -77,6 +78,7 @@ public:
   , mNumBatches{0u}
   , mExhausted{false}
   , mCurrRadius{0.0}
+  , mCurrK{0u}
   {
     auto file_roadmap_ptr = std::make_shared<
       batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
@@ -106,6 +108,11 @@ public:
   double getCurrentRadius() const
   {
     return mCurrRadius;
+  }
+
+  unsigned int getCurrentK() const
+  {
+    return mCurrK;
   }
 
   const ompl::base::State* getVertexState(const Vertex& v) const
@@ -153,6 +160,7 @@ protected:
   unsigned int mNumVertices;
   bool mExhausted;
   double mCurrRadius;
+  unsigned int mCurrK;
 
 };
 

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/util/Console.h>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/properties.hpp>
+#include <cmath>
 #include "batching_pomp/batching/BatchingManager.hpp"
 
 namespace batching_pomp {
@@ -55,21 +56,15 @@ public:
                  Graph& _currentRoadmap,
                  unsigned int _initNumVertices,
                  double _vertInflFactor,
-                 double _radiusInflFactor,
-                 const std::function<double(unsigned int)>& _initRadiusFn,
-                 double _maxRadius
+                 double _KInflFactor
                  )
   : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_fullRoadmap,_currentRoadmap)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
-  , mRadiusInflFactor{_radiusInflFactor}
-  , mInitRadius{_initRadiusFn(_initNumVertices)}
-  , mMaxRadius{_maxRadius}
+  , mKInflFactor{_KInflFactor}
   , mEdgeBatchingMode{false}
-  , mRadiusFn{_initRadiusFn}
   {
-    BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mInitRadius;
     boost::tie(mCurrVertex,mLastVertex) = vertices(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap);
   }
 
@@ -85,34 +80,14 @@ public:
     return mVertInflFactor;
   }
 
-  void setRadiusInflationFactor(unsigned int _radiusInflFactor)
+  void setKInflationFactor(unsigned int _KInflFactor)
   {
-    mRadiusInflFactor = _radiusInflFactor;
+    mKInflFactor = _KInflFactor;
   }
 
-  double getRadiusInflationFactor() const
+  double getKInflationFactor() const
   {
-    return mRadiusInflFactor;
-  }
-
-  void setInitRadius(double _initRadius)
-  {
-    mInitRadius = _initRadius;
-  }
-
-  double getInitRadius() const
-  {
-    return mInitRadius;
-  }
-
-  void setMaxRadius(double _maxRadius)
-  {
-    mMaxRadius = _maxRadius;
-  }
-
-  double getMaxRadius() const
-  {
-    return mMaxRadius;
+    return mKInflFactor;
   }
 
   bool isInEdgeBatchingMode() const
@@ -124,7 +99,6 @@ public:
   /// Overriden methods
   void updateWithNewSolutionCost(double _newSolnCost) override
   {
-    mMaxRadius = std::min(mMaxRadius,_newSolnCost);
   }
 
   void nextBatch(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
@@ -168,20 +142,25 @@ public:
         _vertexNN.add(vertex_vector);
       }
       
-      BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mRadiusFn(std::min(mNextVertexTarget,BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumVertices));
+      BatchingManager<Graph, VStateMap, StateCon, EDistance>:: mCurrK = static_cast<unsigned int>
+       (2.0*std::log2(std::min(mNextVertexTarget,BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumVertices)*1.0));
 
       mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
     }
     else
     {
-      BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius * mRadiusInflFactor;
+      BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrK = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrK * mKInflFactor;
 
-      if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius > mMaxRadius)
+      if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrK >= 
+         num_vertices(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap) )
       {
-        BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = mMaxRadius;
+        BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrK = 
+          num_vertices(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap);
         BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;
       }
     }
+
+    std::cout<<"Current K is "<<BatchingManager<Graph, VStateMap, StateCon, EDistance>:: mCurrK<<std::endl;
 
   }
 
@@ -192,15 +171,12 @@ private:
   unsigned int mNextVertexTarget;
   double mVertInflFactor;
 
-  double mRadiusInflFactor;
-  double mInitRadius;
-  double mMaxRadius;
+  double mKInflFactor;
 
   VertexIter mCurrVertex;
   VertexIter mLastVertex;
 
   bool mEdgeBatchingMode;
-  std::function<double(unsigned int)> mRadiusFn;
 
 };
 

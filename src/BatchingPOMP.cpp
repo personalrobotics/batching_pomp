@@ -113,17 +113,17 @@ class neighbours_visitor
 public:
   BatchingPOMP& mPlanner;
   ompl::NearestNeighbors<BatchingPOMP::Vertex>& mVertexNN;
-  double mCurrRadius;
+  unsigned int mCurrK;
   std::function<double(const BatchingPOMP::Vertex&, const BatchingPOMP::Vertex&)> mVertexDistFun;
   BatchingPOMP::Vertex mVThrow;
 
   neighbours_visitor(BatchingPOMP& _planner,
                      ompl::NearestNeighbors<BatchingPOMP::Vertex>& _vertexNN, 
-                     double _currRadius,
+                     unsigned int _currK,
                      BatchingPOMP::Vertex _vThrow)
   : mPlanner(_planner)
   , mVertexNN(_vertexNN)
-  , mCurrRadius{_currRadius}
+  , mCurrK{_currK}
   , mVertexDistFun{mVertexNN.getDistanceFunction()}
   , mVThrow{_vThrow}
   {}
@@ -136,8 +136,8 @@ public:
     }
 
     std::vector<BatchingPOMP::Vertex> vertexNbrs;
-    mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
-
+    //mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
+    mVertexNN.nearestK(u,mCurrK,vertexNbrs);
 
     // Now iterate through neighbors and check if edge exists between
     // u and neighbour. If it does not exist, create it AND set its
@@ -702,16 +702,15 @@ void BatchingPOMP::setup()
     mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
                   (std::move(ebp));
   }
+  // Mangled for knn
   else if(mBatchingType == "hybrid") {
     unsigned int initNumVertices{100u};
     double vertInflFactor{2.0};
-    auto dimDbl = static_cast<double>(mSpace->getDimension());
-    double radiusInflFactor{std::pow(2.0,1/dimDbl)};
-    double maxRadius{mSpace->getMaximumExtent()};
+    double KInflFactor{2.0};
 
     std::shared_ptr<batching::HybridBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> hbp
      = std::make_shared<batching::HybridBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
-       (mSpace, get(&VProps::v_state,full_g), mRoadmapName, full_g, g, initNumVertices, vertInflFactor, radiusInflFactor, mRadiusFun, maxRadius);
+       (mSpace, get(&VProps::v_state,full_g), mRoadmapName, full_g, g, initNumVertices, vertInflFactor, KInflFactor);
 
     mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
                   (std::move(hbp));
@@ -892,7 +891,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           g,
           mStartVertex,
           *heuristicFn,
-          neighbours_visitor(*this, *mVertexNN, mBatchingPtr->getCurrentRadius(), mGoalVertex),
+          neighbours_visitor(*this, *mVertexNN, mBatchingPtr->getCurrentK(), mGoalVertex),
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
