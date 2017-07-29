@@ -1,39 +1,57 @@
 cmake_minimum_required(VERSION 2.8.12)
 project(batching_pomp)
-list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules/")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 #================================================================================
 # Dependencies
-
-
-find_package(catkin REQUIRED COMPONENTS cmake_modules)
-find_package(FLANN REQUIRED)
+find_package(catkin REQUIRED cmake_modules)
 find_package(OMPL REQUIRED)
-find_package(Boost REQUIRED COMPONENTS graph program_options)
-find_package(Eigen3 REQUIRED)
-
+find_package(Boost REQUIRED COMPONENTS graph)
+find_package(Eigen REQUIRED)
 
 catkin_package(
-   INCLUDE_DIRS include
-   LIBRARIES ${PROJECT_NAME}
-   DEPENDS Boost Eigen
+    INCLUDE_DIRS include
+    LIBRARIES ${PROJECT_NAME}
+    DEPENDS Boost Eigen OMPL
 )
 
 include_directories(
     include
     ${CATKIN_DEVEL_PREFIX}/include
-    ${catkin_INCLUDE_DIRS}
+    ${Boost_INCLUDE_DIRS}
+    ${Eigen_INCLUDE_DIRS}
     ${OMPL_INCLUDE_DIRS}
-    ${Boost_INCLUDE_DIR}
-    ${EIGEN3_INCLUDE_DIR}
+    ${catkin_INCLUDE_DIRS}
+)
+link_directories(
+    ${OMPL_LIBRARY_DIRS}
+    ${catkin_LIBRARY_DIRS}
+)
+add_definitions(
+    ${Eigen_DEFINITIONS}
 )
 
-link_libraries(
-   ${catkin_LIBRARIES}
-   ${OMPL_LIBRARIES}
-   ${Boost_LIBRARIES} )
 
 add_library(${PROJECT_NAME}
-	src/BatchingPOMP.cpp)
+    src/BatchingPOMP.cpp
+)
+
+target_link_libraries(${PROJECT_NAME}
+    ${Boost_LIBRARIES}
+    ${Eigen_LIBRARIES}
+    ${OMPL_LIBRARIES}
+)
+
+install(TARGETS batching_pomp
+    LIBRARY DESTINATION "${CATKIN_PACKAGE_LIB_DESTINATION}"
+)
+install(DIRECTORY "include/${PROJECT_NAME}/"
+    DESTINATION "${CATKIN_PACKAGE_INCLUDE_DESTINATION}"
+    PATTERN "*.in" EXCLUDE
+    PATTERN ".svn" EXCLUDE
+)
+install(DIRECTORY
+    "${CATKIN_DEVEL_PREFIX}/include/${PROJECT_NAME}/"
+    DESTINATION "${CATKIN_PACKAGE_INCLUDE_DESTINATION}"
+)

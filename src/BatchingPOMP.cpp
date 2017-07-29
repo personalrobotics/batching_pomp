@@ -459,10 +459,10 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
   auto endState = g[target(e,g)].v_state->state;
 
   auto nStates = g[e].edgeStates.size();
-  unsigned int stepSize{static_cast<unsigned int>(sqrt(nStates))};
+  unsigned int stepSize{static_cast<unsigned int>(nStates/std::log(nStates))};
   double result{1.0};
 
-  for(unsigned int i = 0; i < nStates; i+=stepSize)
+  for(unsigned int i = 1; i < nStates-1; i+=stepSize)
   {
     BeliefPoint query(g[e].edgeStates[i]->state, mSpace->getDimension(), -1.0);
 
@@ -487,6 +487,8 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
 {
   /// March along edge states with highest resolution
   mNumEdgeChecks++;
+
+  addAffectedEdges(e);
 
   auto validityChecker = si_->getStateValidityChecker();
   
@@ -656,8 +658,6 @@ double BatchingPOMP::getPathDistance(const std::vector<Edge>& _ePath) const
 
 void BatchingPOMP::setup()
 {
-
-  // TODO - Make scaling params
 
   Planner::setup();
 
