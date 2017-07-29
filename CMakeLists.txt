@@ -5,7 +5,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 #================================================================================
 # Dependencies
-find_package(catkin REQUIRED cmake_modules)
+find_package(catkin REQUIRED)
 find_package(OMPL REQUIRED)
 find_package(Boost REQUIRED COMPONENTS graph)
 find_package(Eigen REQUIRED)
