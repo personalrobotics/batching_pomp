@@ -31,8 +31,10 @@ namespace batching_pomp {
 namespace cspacebelief {
 
 /// Abstract class that represents the configuration space belief manager.
-/// It is templated on the type of data structure used to represent
-/// a configuration space point and its result
+/// At a high level, the belief model only cares about updates to itself
+/// with new collision check data, or queries to estimate the probability
+/// of collision of an unknown configuration.
+/// @tparam _T A representation of the configuration space point and its collision check result.
 template <class _T>
 class Model
 {
@@ -40,13 +42,17 @@ public:
 
     virtual ~Model() = default;
 
-    /// Add a data point to the belief manager
+    /// Add a data point to the belief manager.
+    /// \param[in] data The datapoint to add to the belief manager.
     virtual void addPoint(const _T &data) = 0;
 
     /// Remove a data point from the belief manager (rarely used)
+    /// \param[in] data The datapoint to remove from the belief manager.
     virtual void removePoint(const _T &data) = 0;
 
     /// Estimate the configuration space belief of the query
+    /// \param[in] query The datapoint for which the probability of collision is estimated.
+    /// \return The probability of collision of query in (0,1)
     virtual double estimate(const _T &query) const = 0;
 
 };

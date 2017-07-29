@@ -42,15 +42,15 @@ namespace batching_pomp {
 namespace cspacebelief {
 
 /// Implements a C-Space Belief Model using k-Nearest Neighbour lookup
-/// And weighted averaging over neighbouring belief points
-/// The weights are inversely proportional to the distance
-
+/// and weighted averaging over the results of neighbouring belief points.
+/// The weights are inversely proportional to the distance between
+/// the queried point and the neighbouring belief points.
 class KNNModel : public virtual Model<BeliefPoint>
 {
 public:
 
   /// \param[in] _KNN The value of k for KNN lookup
-  /// \param[in] _distanceFunction The ompl NearestNeighbours Distance Function to set 
+  /// \param[in] _distanceFunction The ompl::NearestNeighbours::Distance Function to set 
   KNNModel(size_t _KNN,
            double _prior, double _priorWeight,
            const std::function<double(const BeliefPoint&, const BeliefPoint&)>& _distanceFunction)
@@ -98,11 +98,11 @@ public:
 
   double estimate(const BeliefPoint& query) const override
   {
+    // This is important for cases where edges need to be initialized before any checks.
     if(mNumPoints == 0) {
       return mPrior;
     }
 
-    // If fewer than k thus far, take all points
     size_t knn = std::min(mKNN , mNumPoints);
 
     std::vector<BeliefPoint> neighboursVect;
@@ -132,12 +132,23 @@ public:
   }
 
 private:
-    
+  
+  /// The current number of belief points in the model  
   size_t mNumPoints;
+
+  /// The value of k for the kNN lookup
   size_t mKNN;
+
+  /// The prior probability in (0,1) to use for smoothing
   double mPrior;
+
+  /// The weight in (0,1) to assign to the prior for smoothing
   double mPriorWeight;
+
+  /// The kind of nearest neighbour structure for the belief model, GNAT in this case.
   std::unique_ptr<ompl::NearestNeighbors<BeliefPoint>> mBeliefPointNN;
+
+  /// The distance metric for the nearest neighbour structure
   std::function<double(const BeliefPoint&, const BeliefPoint&)> mDistanceFunction;
 };
 
