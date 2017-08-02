@@ -37,7 +37,10 @@ namespace batching_pomp {
 namespace batching {
 
 /// Abstract class that represents the batching strategy used for the
-/// planning algorithm. 
+/// planning algorithm. The batching manager maintains responsibility
+/// for the complete roadmap and periodically adds batches to the 
+/// roadmap of the planner. This decoupling allows the complete roadmap
+/// to be loaded separately before the planning query arrives.
 template<class Graph, class VStateMap, class StateCon, class EDistance>
 class BatchingManager
 {
@@ -48,6 +51,11 @@ typedef typename GraphTypes::vertex_descriptor Vertex;
 
 public:
 
+  /// \param[in] _space The state space of the planner
+  /// \param[in] _stateMap The property map for states of vertices
+  /// \param[in] _roadmapFileName The full path to roadmap .graphml file
+  /// \param[in] _fullRoadmap The complete roadmap maintained by the batching manager
+  /// \param[in] _currentRoadmap
   BatchingManager(const ompl::base::StateSpacePtr _space,
                   VStateMap _stateMap,
                   std::string _roadmapFileName,
