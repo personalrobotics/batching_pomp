@@ -8,7 +8,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 find_package(catkin REQUIRED)
 find_package(OMPL REQUIRED)
 find_package(Boost REQUIRED COMPONENTS graph)
-find_package(Eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 catkin_package(
     INCLUDE_DIRS include
@@ -20,7 +20,7 @@ include_directories(
     include
     ${CATKIN_DEVEL_PREFIX}/include
     ${Boost_INCLUDE_DIRS}
-    ${Eigen_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIRS}
     ${OMPL_INCLUDE_DIRS}
     ${catkin_INCLUDE_DIRS}
 )
@@ -29,7 +29,7 @@ link_directories(
     ${catkin_LIBRARY_DIRS}
 )
 add_definitions(
-    ${Eigen_DEFINITIONS}
+    ${EIGEN3_DEFINITIONS}
 )
 
 
@@ -39,7 +39,6 @@ add_library(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
     ${Boost_LIBRARIES}
-    ${Eigen_LIBRARIES}
     ${OMPL_LIBRARIES}
 )
 
