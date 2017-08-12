@@ -41,6 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace cspacebelief {
 
+//! Derived class of Model that uses kNN to represent the C-space belief.
+
 /// Implements a C-Space Belief Model using k-Nearest Neighbour lookup
 /// and weighted averaging over the results of neighbouring belief points.
 /// The weights are inversely proportional to the distance between
@@ -133,22 +135,22 @@ public:
 
 private:
   
-  /// The current number of belief points in the model  
+  // The current number of belief points in the model  
   size_t mNumPoints;
 
-  /// The value of k for the kNN lookup
+  // The value of k for the kNN lookup
   size_t mKNN;
 
-  /// The prior probability in (0,1) to use for smoothing
+  // The prior probability in (0,1) to use for smoothing
   double mPrior;
 
-  /// The weight in (0,1) to assign to the prior for smoothing
+  // The weight in (0,1) to assign to the prior for smoothing
   double mPriorWeight;
 
-  /// The kind of nearest neighbour structure for the belief model, GNAT in this case.
+  // The kind of nearest neighbour structure for the belief model, GNAT in this case.
   std::unique_ptr<ompl::NearestNeighbors<BeliefPoint>> mBeliefPointNN;
 
-  /// The distance metric for the nearest neighbour structure
+  // The distance metric for the nearest neighbour structure
   std::function<double(const BeliefPoint&, const BeliefPoint&)> mDistanceFunction;
 };
 

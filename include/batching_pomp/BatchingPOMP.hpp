@@ -64,31 +64,45 @@ struct StateCon
 
 typedef std::shared_ptr<StateCon> StateConPtr;
 
-
+/// The OMPL Planner class that implements the algorithm
 class BatchingPOMP : public ompl::base::Planner
 {
 
 public:
 
+  /// The edge is known to be collision-free
   static const int FREE{1};
-  static const int BLOCKED{-1};
-  static const int UNKNOWN{0};
-  static constexpr double DEFAULTPRUNETHRESHOLD = 1.1; //Threshold of old-cost/new-cost beyond which pruning should be done
 
+  /// The edge is known to be in collision
+  static const int BLOCKED{-1};
+
+  /// The collision status of the edge is unknown
+  static const int UNKNOWN{0};
+
+  /// Properties associated with each roadmap vertex
   struct VProps
   {
+    /// The underlying state of the vertex
     StateConPtr v_state;
   };
 
+  /// Properties associated with each roadmap edge
   struct EProps
   {
+    /// The length of the edge using the space distance metric
     double distance;
+
+    /// The probability of collision of the edge
     double probFree;
+
+    /// The collision status of the edge (free, blocked or unknown)
     int blockedStatus;
+
+    /// The set of states embedded in the edge
     std::vector< StateConPtr > edgeStates;
   };
 
-  /// Graph definitions
+  // Graph definitions
   typedef boost::adjacency_list< boost::vecS, boost::vecS, boost::undirectedS, VProps, EProps> Graph;
   typedef boost::graph_traits<Graph>::vertex_descriptor Vertex;
   typedef boost::graph_traits<Graph>::vertex_iterator VertexIter;
@@ -96,26 +110,40 @@ public:
   typedef boost::graph_traits<Graph>::edge_iterator EdgeIter;
   typedef boost::graph_traits<Graph>::out_edge_iterator OutEdgeIter;
 
-  /// Boost property maps needed by planner
+  // Boost property maps needed by planner
   typedef boost::property_map<Graph, StateConPtr VProps::*>::type VPStateMap;
   typedef boost::property_map<Graph, double EProps::*>::type EPDistanceMap;
   typedef boost::property_map<Graph, boost::vertex_index_t>::type VertexIndexMap;
-  //typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
 
-  /// Public variables for the planner
+  /// The pointer to the OMPL state space 
   const ompl::base::StateSpacePtr mSpace;
 
+  /// The pointer to the batching manager instance to be used by the planner
   std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > mBatchingPtr;
 
+  /// The pointer to the C-space belief model instance to be used by the planner
   std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > mBeliefModel;
 
+  /// The roadmap that will be continuously searched and updated.
   Graph g;
+
+  /// The large, dense roadmap that remains unchanged after being loaded once
   Graph full_g;
 
-  /// OMPL methods
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si);
 
-  /// Constructor for non-default stuff
+  /// \param[in] si The OMPL space information manager
+  /// \param[in] _batchingPtr The pointer to the constructed batching manager that
+  ///            the planner should use
+  /// \param[in] _beliefModel The pointer to the constructed C-space belief model that
+  ///            the planner should use
+  /// \param[in] _selector The pointer to the constructed edge selector that 
+  ///            the planner should use.
+  /// \param[in] _roadmapFileName The path to the .graphml file that encodes the roadmap vertices
+  /// \param[in] _startGoalRadius (Only for Single Batching) The radius to connect start
+  ///            and goal vertices to the roadmap
+  /// \param[in] _increment The increment in the value of alpha after each POMP search
+  /// \param[in] _pruneThreshold The fractional change in cost above which pruning of samples should be done
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
                std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
                std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > _beliefModel,
@@ -127,18 +155,25 @@ public:
 
   ~BatchingPOMP(void);
 
-  /// Setters and Getters
+  // Setters and Getters
+  /// Current value of alpha being used by POMP
   double getCurrentAlpha() const;
+  /// Cost of current best solution to goal
   double getCurrentBestCost() const;
+  /// The ID of the start vertex
   Vertex getStartVertex() const;
+  /// The ID of the goal vertex
   Vertex getGoalVertex() const;
+  /// Whether the current POMP search is the first of that batch (alpha = 0)
   bool isInitSearchBatch() const;
+  /// The value with which alpha is incremented
   double getIncrement() const;
   void setIncrement(double _decrement);
   double getStartGoalRadius() const;
   void setStartGoalRadius(double _startGoalRadius);
   double getPruneThreshold() const;
   void setPruneThreshold(double _pruneThreshold);
+  /// The kind of sequence used to generate samples ("halton" or "rgg")
   std::string getGraphType() const;
   void setGraphType(const std::string& _graphType);
   std::string getBatchingType() const;
@@ -148,29 +183,57 @@ public:
   std::string getRoadmapFileName() const;
   void setRoadmapFileName(const std::string& _roadmapFileName);
 
-  /// Evaluation methods
+  // Internal evaluation methods
+  /// Number of edges evaluated thus far
   inline unsigned int getNumEdgeChecks(){ return mNumEdgeChecks;}
+  /// Number of calls to collision checker made thus far
   inline unsigned int getNumCollChecks(){ return mNumCollChecks;}
+  /// Number of roadmap searches done thus far
   inline unsigned int getNumSearches(){ return mNumSearches;}
+  /// Number of model lookups made thus far
   inline unsigned int getNumLookups(){ return mNumLookups;}
+  /// Total time spent doing model lookups
   inline double getLookupTime(){ return mLookupTime;}
+  /// Total time spent doing searches
   inline double getSearchTime(){ return mSearchTime;}
+  /// Total time spent doing collision checks
   inline double getCollCheckTime(){return mCollCheckTime;}
 
-  /// OMPL required methods
+  // OMPL required methods
   void setProblemDefinition(const ompl::base::ProblemDefinitionPtr & pdef);
   ompl::base::PlannerStatus solve(const ompl::base::PlannerTerminationCondition & ptc);
   void setup();
 
-  /// Public helper methods
+  /// The distance function between roadmap vertices to be used
+  /// by the nearest neighbour manager for vertices. Typically
+  /// returns the distance between the underlying states of the space.
+  /// \param[in] u,v The end-point vertices of the edge
+  /// \return The distance between vertices
   double vertexDistFun(const Vertex& u, const Vertex& v) const;
+
+  /// Given a new edge, initialize the embedded configurations
+  /// along the edge using the resolution of the underlying space.
+  /// This is a separate method so that it is called only when
+  /// a new edge is created, i.e. just-in-time.
+  /// \param[in] e The edge ID to initialize with configurations
   void initializeEdgePoints(const Edge& e);
+
+  /// Compute the collision measure of an edge and assign it
+  /// to the underlying property of the edge. Also return the value
+  /// to the caller.
+  /// \param[in] e The edge ID
+  /// \return The computed collision measure of e as per the current model
   double computeAndSetEdgeFreeProbability(const Edge& e);
+
+  /// Evaluate an edge to determine its collision status
+  /// and assign it to the underlying property of the edge.
+  /// \param[in] The edge ID to check for
+  /// \return True or False depending on if the edge is in collision or not
   bool checkAndSetEdgeBlocked(const Edge& e);
 
 private:
 
-  /// Planning helpers
+  // Planning helpers
   std::unique_ptr<util::Selector<Graph>> mSelector;
   std::unique_ptr<ompl::NearestNeighborsGNAT<Vertex>> mVertexNN;
   std::function<double(unsigned int)> mRadiusFun;
@@ -180,7 +243,7 @@ private:
   std::vector<Edge> mCurrBestPath;
   std::set<Edge> mEdgesToUpdate;
 
-  /// Planner parameters
+  // Planner parameters
   double mCurrentAlpha;
   double mIncrement;
   double mStartGoalRadius;
@@ -195,7 +258,7 @@ private:
   std::string mSelectorType; // Optional - to be used for non-CPP level calls
   std::string mRoadmapName;
 
-  /// For planner evaluation
+  // For planner evaluation
   unsigned int mNumEdgeChecks;
   unsigned int mNumCollChecks;
   unsigned int mNumSearches;
@@ -205,7 +268,7 @@ private:
   double mSearchTime;
 
 
-  /// Private helper methods
+  // Private helper methods
   double haltonRadiusFun(unsigned int n) const;
   double rggRadiusFun(unsigned int n) const;
   bool checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath);

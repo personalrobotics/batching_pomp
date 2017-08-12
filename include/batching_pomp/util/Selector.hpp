@@ -38,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace util {
 
-/// Implements various methods of selecting the order of edges
-/// to evaluate for lazy evaluation of a path.
+//! A selector assigns an ordering for evaluating edges on a candidate path.
 
+/// Implements various methods of selecting the order of edges
+/// to check for lazy evaluation of a candidate path.
+/// @tparam Graph The type of boost graph used for the roadmaps
 template<class Graph>
 class Selector
 {
@@ -50,10 +52,8 @@ typedef typename GraphTypes::edge_descriptor Edge;
 
 public:
 
-  /// Constructor
-  /// \param[in] _type The kind of edge selector to use
+  /// \param[in] _type The kind of edge selector to use.
   ///             Options are normal, alternate, failfast and maxinf
-  /// Sets function pointer to correct edge selector function
   Selector(const std::string& _type)
   : mType{_type}
   {
@@ -88,16 +88,16 @@ public:
 
 
 private:
-  /// For a pair of edge and probability of collision
+  // For a pair of edge and probability of collision
   using EdgePair = std::pair<double,Edge>;
 
-  /// Just return in order of edges on path
+  // Just return in order of edges on path
   std::vector<Edge> selectEdgesNormal(const Graph& g, const std::vector<Edge>& epath) const
   {
     return epath;
   }
 
-  /// Return reverse order of edges
+  // Return reverse order of edges
   std::vector<Edge> selectEdgesAlternate(const Graph& g, const std::vector<Edge>& epath) const
   {
     std::vector<Edge> reverseEpath(epath);
@@ -105,7 +105,7 @@ private:
     return reverseEpath;
   }
 
-  /// Return in order of highest probability of collision
+  // Return in order of highest probability of collision
   std::vector<Edge> selectEdgesFailFast(const Graph& g, const std::vector<Edge>& epath) const
   {
     std::vector < EdgePair > edgeProbList;
@@ -125,7 +125,7 @@ private:
     return orderedEdges;
   }
 
-  /// Return in order or most uncertain (closest to 0.5 probability)
+  // Return in order or most uncertain (closest to 0.5 probability)
   std::vector<Edge> selectEdgesMaxInf(const Graph& g, const std::vector<Edge>& epath) const
   {
     std::vector < EdgePair > edgeProbList;

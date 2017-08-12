@@ -37,6 +37,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace batching {
 
+//! Derived class of BatchingManager that implements Vertex Batching.
+
+/// Implements Vertex Batching, where batches of vertices are added
+/// and the complete subgraph is searched over each time.
 template<class Graph, class VStateMap, class StateCon, class EDistance>
 class VertexBatching : public BatchingManager<Graph, VStateMap, StateCon, EDistance> 
 {
@@ -48,7 +52,9 @@ typedef typename GraphTypes::vertex_descriptor Vertex;
 
 public:
 
-  /// Derived constructor to initialize the number of vertices
+  /// \param[in] _initNumVertices The initial number of vertices to begin with
+  /// \param[in] _vertInflFactor The factor by which to increase the number of
+  ///                            vertices in each batch.
   VertexBatching(const ompl::base::StateSpacePtr _space,
                  VStateMap _stateMap,
                  std::string _roadmapFileName,
@@ -103,14 +109,14 @@ public:
     while(mNumVerticesAdded < mNextVertexTarget)
     {
 
-      /// Only add if best cost through vertex better than current solution
+      // Only add if best cost through vertex better than current solution
       if(!_pruneFunction(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*mCurrVertex].v_state->state)) {
         Vertex newVertex{boost::add_vertex(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap)};
         BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap[newVertex].v_state = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*mCurrVertex].v_state;
         vertex_vector[idx++] = newVertex;
       }
 
-      /// Increment stuff
+      // Increment stuff
       ++mCurrVertex;
       ++mNumVerticesAdded;
 
@@ -120,14 +126,14 @@ public:
       }
     }
 
-    /// Update nearest neighbour structure with vertices
+    // Update nearest neighbour structure with vertices
     // TODO : Is this the most efficient way?
     if(idx > 0u) {
       vertex_vector.resize(idx);
       _vertexNN.add(vertex_vector);
     }
 
-    /// Update size of next subgraph
+    // Update size of next subgraph
     mNextVertexTarget = static_cast<unsigned int>(mNextVertexTarget * mVertInflFactor);
   }
 
@@ -137,7 +143,6 @@ private:
   unsigned int mNextVertexTarget;
   double mVertInflFactor;
 
-  /// For tracking which vertices have been included
   VertexIter mCurrVertex;
   VertexIter mLastVertex;
 

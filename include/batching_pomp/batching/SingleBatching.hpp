@@ -36,6 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp{
 namespace batching {
 
+//! Derived class of BatchingManager that implements a single batch search.
+  
+/// Implements the case where there is a single, reasonably sized roadmap
+/// that will be searched by POMP, without any batching. This is
+/// to allow a common framework to run POMP on a single roadmap.
 template<class Graph, class VStateMap, class StateCon, class EDistance>
 class SingleBatching : public BatchingManager<Graph, VStateMap, StateCon, EDistance>
 {
@@ -77,8 +82,8 @@ public:
     OMPL_INFORM("Single Batch called!");
     ++BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumBatches;
 
-    /// You know there is only one batch
-    ///Now remove all invalid vertices
+    // You know there is only one batch
+    // Now remove all invalid vertices
     BatchingManager<Graph, VStateMap, StateCon, EDistance>::pruneVertices(_pruneFunction,_vertexNN);
 
     BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;

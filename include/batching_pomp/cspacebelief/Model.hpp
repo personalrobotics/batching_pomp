@@ -30,7 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace cspacebelief {
 
-/// Abstract class that represents the configuration space belief manager.
+//! Abstract class that represents the configuration space belief manager.
+  
 /// At a high level, the belief model only cares about updates to itself
 /// with new collision check data, or queries to estimate the probability
 /// of collision of an unknown configuration.
