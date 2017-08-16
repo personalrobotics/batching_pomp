@@ -272,7 +272,7 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si)
 , mCurrentAlpha{0.0}
 , mStartGoalRadius{0.0}
 , mIncrement{0.2}
-, mPruneThreshold{0.05}
+, mPruneThreshold{1.05}
 , mIsInitSearchBatch{true}
 , mIsPathFound{false}
 , mCheckRadius{0.5*mSpace->getLongestValidSegmentLength()}
