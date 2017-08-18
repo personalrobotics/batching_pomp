@@ -37,6 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace batching {
 
+//! Derived class of BatchingManager that implements Edge Batching.
+
+/// Implements Edge Batching, where all vertices are considered
+/// and batches of edges are added based on an increasing
+/// radius of connectivity.
 template<class Graph, class VStateMap, class StateCon, class EDistance>
 class EdgeBatching : public BatchingManager<Graph, VStateMap, StateCon, EDistance>
 {
@@ -48,6 +53,11 @@ typedef typename GraphTypes::vertex_descriptor Vertex;
 
 public:
 
+  /// \param[in] _radiusInflFactor The value by which to increase the radius for each new batch
+  /// \param[in] _initRadiusFn The function which generates the initial radius based on
+  ///                          the number of vertices
+  /// \param[in] _maxRadius The maximum meaningful radius for edge batching.
+  ///                        It is a function of the space bounds and the current solution quality.
   EdgeBatching(const ompl::base::StateSpacePtr _space,
                VStateMap _stateMap,
                std::string _roadmapFileName,
@@ -131,7 +141,7 @@ public:
         }
       }
 
-      /// Truncate to actual number of samples
+      // Truncate to actual number of samples to add
       vertex_vector.resize(idx);
       _vertexNN.add(vertex_vector);
 

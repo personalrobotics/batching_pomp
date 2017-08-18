@@ -74,7 +74,7 @@ inline void stringify_from_x(std::string & repr, const double & val)
     return;
 }
 
-/*! \brief Treats OMPL state space values as space-delimited strings
+/*! \brief Treats OMPL state space values as space-delimited strings.
 * Allocates a new state while putting, but does not free existing ones.
 */
 

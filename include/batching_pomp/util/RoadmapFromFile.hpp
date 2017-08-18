@@ -44,7 +44,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace util {
 
+//! The map used to decode the .graphml file and populate vertex states.
 
+/// @tparam PropMap The type of property map for vertex states
+/// @tparam StateCon The wrapper for the ompl state
 template <class PropMap, class StateCon>
 class RoadmapFromFilePutStateMap
 {
@@ -91,9 +94,15 @@ put(const RoadmapFromFilePutStateMap<PropMap,StateCon> & map,
   }
 }
 
+//! Reads a roadmap encoded as a .graphml file and creates the corresponding Boost Graph
+
 /// Read a graphml file and assign vertices to ompl states
 /// Optionally, if file has edges, assign edge distances
-/// to be the distance between the states
+/// to be the distance between the states.
+/// @tparam Graph The type of boost graph used for the roadmaps
+/// @tparam VStateMap The type of boost property map for vertex states
+/// @tparam StateCon The wrapper type for an ompl state
+/// @tparam EDistance The type of property map for edge lengths
 template <class Graph, class VStateMap, class StateCon, class EDistance>
 class RoadmapFromFile
 {

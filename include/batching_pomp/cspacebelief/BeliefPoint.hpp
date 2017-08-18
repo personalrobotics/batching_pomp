@@ -34,10 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace cspacebelief {
 
-/// Represents a single member of the configuration space
-/// belief model. Consists of the state and the result
-/// of the collision check of that state.
+//! An example datatype of the configuration space belief model.
 
+/// Consists of the state and the result
+/// of the collision check of that state. The assumption is
+/// that every belief model will at a minimum require the value
+/// of the checked configuration and its result.
 struct BeliefPoint {
 
   Eigen::VectorXd stateValues;

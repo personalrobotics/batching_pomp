@@ -36,8 +36,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace batching {
 
-/// Abstract class that represents the batching strategy used for the
-/// planning algorithm. 
+
+//! Abstract class that represents the batching strategy used for the planning algorithm
+
+/// The batching manager maintains responsibility
+/// for the complete roadmap and periodically adds batches to the 
+/// roadmap of the planner. This decoupling allows the complete roadmap
+/// to be loaded separately before the planning query arrives.
+/// @tparam Graph The type of boost graph used for the roadmaps
+/// @tparam VStateMap The type of boost property map for vertex states
+/// @tparam StateCon The wrapper type for an ompl state
+/// @tparam EDistance The type of property map for edge lengths
 template<class Graph, class VStateMap, class StateCon, class EDistance>
 class BatchingManager
 {
@@ -48,6 +57,11 @@ typedef typename GraphTypes::vertex_descriptor Vertex;
 
 public:
 
+  /// \param[in] _space The state space of the planner
+  /// \param[in] _stateMap The property map for states of vertices
+  /// \param[in] _roadmapFileName The full path to roadmap .graphml file
+  /// \param[in] _fullRoadmap The complete roadmap loaded by the batching manager
+  /// \param[in] _currentRoadmap The roadmap that the planner is currently searching
   BatchingManager(const ompl::base::StateSpacePtr _space,
                   VStateMap _stateMap,
                   std::string _roadmapFileName,
@@ -66,6 +80,13 @@ public:
     mNumVertices = num_vertices(mFullRoadmap);
   }
 
+  /// Corresponding constructor for single batching strategy
+  /// \param[in] _space The state space of the planner
+  /// \param[in] _stateMap The property map for states of vertices
+  /// \param[in] _distanceMap The property map for the distance of edges
+  /// \param[in] _roadmapFileName The full path to roadmap .graphml file
+  /// \param[in] _fullRoadmap The complete roadmap loaded by the batching manager
+  /// \param[in] _currentRoadmap The roadmap that the planner is currently searching
   BatchingManager(const ompl::base::StateSpacePtr _space,
                   VStateMap _stateMap,
                   EDistance _distanceMap,
@@ -88,6 +109,8 @@ public:
 
   virtual ~BatchingManager() = default;
 
+  //////////////////////////////////////////////////
+  // Getters
   unsigned int getNumBatches() const
   {
     return mNumBatches;
@@ -113,6 +136,11 @@ public:
     return mFullRoadmap[v].v_state->state;
   }
   
+  /// Implements the removal of all vertices, from the current roadmap,
+  /// that satisfy a given pruning condition. Vertices are also
+  /// removed from the nearest neighbour structure that maintains them.
+  /// \param[in] _pruneFunction The function pointer that has the pruning condition
+  /// \param[in] _vertexNN The nearest neighbour structure for vertices
   void pruneVertices(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                      ompl::NearestNeighbors<Vertex>& _vertexNN)
   {
@@ -128,7 +156,7 @@ public:
       }
     }
 
-    /// Now remove vertices
+    // Now remove vertices lined up
     for(size_t i=0; i<vRemoved; i++)
     {
       _vertexNN.remove(verticesToRemove[i]);
@@ -137,21 +165,36 @@ public:
   }
 
   /// Make any updates to batching manager with newest solution cost
+  /// \param[in] _newSolnCost The current best solution cost with which
+  ///                         to update the batching manager parameters
   virtual void updateWithNewSolutionCost(double _newSolnCost) = 0;
 
-  /// Nearest neighbour member may be nullptr (for single batch case)
+  /// Generate the next batch and update the current roadmap with it
+  /// \param[in] _pruneFunction The rejection sampling checker for new samples
+  /// \param[in] _vertexNN The nearest neighbour manager for roadmap vertices
+  ///                       that is updated with the latest batch of samples
   virtual void nextBatch(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                          ompl::NearestNeighbors<Vertex>& _vertexNN) = 0;
 
 
 protected:
 
+  /// The entire roadmap that will be used for planning
   Graph & mFullRoadmap;
+
+  /// The roadmap currently being searched by the planner
   Graph & mCurrentRoadmap;
 
+  /// The number of batches added till now
   unsigned int mNumBatches;
+
+  /// The number of vertices in the entire roadmap
   unsigned int mNumVertices;
+
+  /// The flag that maintains whether the complete roadmap has been fully searched or not.
   bool mExhausted;
+
+  /// The radius of connectivity for the current batch
   double mCurrRadius;
 
 };

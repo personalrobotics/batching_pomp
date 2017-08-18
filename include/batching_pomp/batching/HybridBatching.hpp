@@ -23,7 +23,6 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
-
 #ifndef BATCHING_POMP_HYBRID_BATCHING_HPP_
 #define BATCHING_POMP_HYBRID_BATCHING_HPP_
 
@@ -37,6 +36,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace batching_pomp {
 namespace batching {
 
+//! Derived class of BatchingManager that implements Hybrid Batching.
+
+/// Implements Hybrid Batching, which proceeds in two phases.
+/// Initially, batches of vertices are added, and the r-disk
+/// shrinks (as per a function connecting vertices to radius)
+/// to maintain a specific relationship between edges and vertices.
+/// Once all vertices are added, batches of edges are added based on
+/// an increasing radius of connectivity (similar to Edge Batching)
 template<class Graph, class VStateMap, class StateCon, class EDistance>
 class HybridBatching : public BatchingManager<Graph, VStateMap, StateCon, EDistance> 
 {
@@ -48,6 +55,15 @@ typedef typename GraphTypes::vertex_descriptor Vertex;
 
 public:
 
+  /// \param[in] _initNumVertices The initial number of vertices to begin with
+  /// \param[in] _vertInflFactor The factor by which to increase the number of
+  ///                            vertices in each batch in the first phase
+  /// \param[in] _radiusInflFactor The value by which to increase 
+  ///                             the radius for each new batch in the second phase
+  /// \param[in] _initRadiusFn The function which generates the radius based on
+  ///                          the number of vertices
+  /// \param[in] _maxRadius The maximum meaningful radius for edge batching.
+  ///                        It is a function of the space bounds and the current solution quality.
   HybridBatching(const ompl::base::StateSpacePtr _space,
                  VStateMap _stateMap,
                  std::string _roadmapFileName,
@@ -156,7 +172,7 @@ public:
         ++mCurrVertex;
         ++mNumVerticesAdded;
 
-        /// If all samples added, next round will be edge batching mode
+        // If all samples added, next round will be edge batching mode
         if(mCurrVertex == mLastVertex) {
           mEdgeBatchingMode = true;
           break;
