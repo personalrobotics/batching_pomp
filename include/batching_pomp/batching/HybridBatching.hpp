@@ -1,5 +1,5 @@
 /***********************************************************************
-Copyright (c) 2017, Carnegie Mellon University
+Copyright (c) 2017, Shushman Choudhury
 All rights reserved.
 Authors: Shushman Choudhury <shushmanchoudhury@gmail.com>
 
