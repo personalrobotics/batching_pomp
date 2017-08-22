@@ -7,22 +7,23 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 # Dependencies
 find_package(catkin REQUIRED)
 find_package(OMPL REQUIRED)
-find_package(Boost REQUIRED COMPONENTS graph)
+find_package(Boost REQUIRED COMPONENTS graph program_options)
 find_package(Eigen3 REQUIRED)
+find_package(OpenCV REQUIRED)
 
 catkin_package(
     INCLUDE_DIRS include
     LIBRARIES ${PROJECT_NAME}
-    DEPENDS Boost Eigen OMPL
+    DEPENDS Boost EIGEN3 OMPL
 )
 
 include_directories(
     include
-    ${CATKIN_DEVEL_PREFIX}/include
     ${Boost_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIRS}
     ${OMPL_INCLUDE_DIRS}
     ${catkin_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
 )
 link_directories(
     ${OMPL_LIBRARY_DIRS}
@@ -54,3 +55,7 @@ install(DIRECTORY
     "${CATKIN_DEVEL_PREFIX}/include/${PROJECT_NAME}/"
     DESTINATION "${CATKIN_PACKAGE_INCLUDE_DESTINATION}"
 )
+
+# For example script
+add_executable(example_2d scripts/example_2d_image)
+target_link_libraries(example_2d ${PROJECT_NAME} ${OpenCV_LIBS})
