@@ -13,6 +13,7 @@ This is an implementation of an algorithmic framework for anytime motion plannin
 
 # Dependencies
 
+## For the library
 - Ubuntu 14.04 or later (Has also been built on OSX)
 - [C++11](https://isocpp.org/wiki/faq/cpp11) or higher
 - [cmake](https://cmake.org/download/)
@@ -20,6 +21,9 @@ This is an implementation of an algorithmic framework for anytime motion plannin
 - [FLANN](http://www.cs.ubc.ca/research/flann/)
 - [OMPL](http://ompl.kavrakilab.org/) built with FLANN
 - [Boost Graph Library](http://www.boost.org/doc/libs/1_64_0/libs/graph/doc/index.html)
+## For the example
+- [Networkx](https://networkx.github.io/)
+- [OpenCV](http://opencv.org/)
 
 # Build
 The `CMakeLists.txt` file supports [catkin tools](https://catkin-tools.readthedocs.io/en/latest/). Once you have created and [initialized your workspace](https://catkin-tools.readthedocs.io/en/latest/quick_start.html#initializing-a-new-workspace), you should be able to clone `batching_pomp` into your workspace and do `catkin build batching_pomp`.
@@ -39,3 +43,21 @@ The following are the OMPL parameters that the planner supports:
 - `prune_threshold`(default=1.05): The threshold of the ratio of previous best solution cost to new best solution cost, above which pruning of existing vertices should be done. This prunes more conservatively.
 - `start_goal_radius`(required only for Single Batching): The radius of connectivity to use for connecting the start and goal to the `singlebatching` roadmap
 - `selector_type`(optional): Arranges the order of edges to evaluate on a candidate path. If not included, the full candidate path will be evaluated each time, rather than just the first unevaluated edge.
+
+# Example
+A `Python` script for generating a complete roadmap has been provided with some options, along with a `C++` example of using the planner. To use them, checkout the `example` branch of the repository. Now we will run `batching_pomp` on a 2D point planning example on a B/W map. All code is assumed to be run from the `batching_pomp` level of the repository. Check the imports in the `scripts/save_sequence_to_graph.py` file to see what `Python` libraries you need. You will also need `OpenCV` to run the example.
+
+The first step is to generate a complete roadmap for the unit 2D grid (the locations in the unit grid will be scaled to the square image, where (0,0) is the upper left and (1,1) is the lower right of the image). To do this, run
+```shell
+$ python scripts/save_sequence_to_graph.py --num_nodes 1000 --dimensions 2 --bounds unit --sequence halton --outfile data/halton_2d_1000.graphml
+```
+Open up the `.graphml` file if you have never seen one before and take a look at how the states are associated with the vertex IDs. Note that there are no edges defined between vertex IDs as these are assumed to be complete roadmaps, with the edges based on radii of connectivity, handled by the batching manager.
+
+Now you can run the example in `scripts/example_2d_image.cc` on the map in `data/example_map.png`, once you have built the package and example. The example assumes you have a catkin workspace in which `batching_pomp` resides but you can also just use the typical `cmake` procedure 
+```shell
+$ catkin build batching_pomp # Assuming you have a catkin workspace
+$ ../../devel/lib/batching_pomp/example_2d -f data/halton_2d_5000.graphml -m data/example_map.png -v halton -s 0.1 0.1 -g 0.9 0.9 -b hybrid # There's probably an easier way to call the executable
+```
+You should see an OpenCV window with a solution path pop up. Keep pressing the 'Enter' key over the window to get shorter and shorter paths.
+
+The above example assumes you have a `catkin` workspace but if you do not, you should still be able to do it through the `cmake` and `make` route after editing the `CMakeLists.txt` file appropriately. Contact the author for help with that if needed.
