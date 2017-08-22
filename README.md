@@ -11,6 +11,9 @@ This is an implementation of an algorithmic framework for anytime motion plannin
 - A sequence of subgraphs of the entire roadmap is generated, using some densification strategy.
 - After each subgraph is added, the current roadmap is searched using an anytime roadmap planning algorithm called POMP (Pareto-Optimal Motion Planner).
 
+### Disclaimer
+Currently the densification strategies use radius of connectivity (where appropriate) to induce subgraphs (check the densification paper for details). The results are obtained from analysis done for unit hypercubes. For other state spaces, please ensure that the distance function is appropriately defined so that the r-disk roadmaps have the appropriate expected average degree. Instead, a k-NN version of our framework could be used (and was started to be implemented in the `kNN_bpomp` branch but was not completed). Contact the author for more details if the r-disk version cannot be used reliably.
+
 # Dependencies
 
 ## For the library
