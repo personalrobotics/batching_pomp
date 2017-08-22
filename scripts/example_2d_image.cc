@@ -107,7 +107,7 @@ int main(int argc, char* argv[])
       ("mapfile,m",po::value< std::string >()->required(),"Environment map image")
       ("start_coords,s",po::value<std::vector<float> >()->multitoken(),"start coordinates")
       ("goal_coords,g",po::value<std::vector<float> >()->multitoken(),"goal coordinates")
-      ("vertices_type,v",po::value< std::string >()->required(),"Type of sequence to generate vertices (halton/random)")
+      ("vertices_type,v",po::value< std::string >()->required(),"Type of sequence to generate vertices (halton/rgg)")
       ("batching_type,b",po::value< std::string >()->required(), "Type of roadmap batching")
   ;
 
