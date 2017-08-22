@@ -189,7 +189,6 @@ int main(int argc, char* argv[])
       }
 
       displayPath(img_disp,state_list);
-      //std::cin.ignore();
       pdef->clearSolutionPaths();
     }
 
