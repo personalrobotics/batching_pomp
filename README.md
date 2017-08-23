@@ -1,6 +1,7 @@
 # batching_pomp
 
-A motion planning algorithm implemented in [OMPL](http://ompl.kavrakilab.org/), also using [Boost Graph Library](http://www.boost.org/doc/libs/1_64_0/libs/graph/doc/index.html). It is released under the [BSD License](https://opensource.org/licenses/BSD-2-Clause). The code is based on our upcoming IJRR submission. In the meantime, please cite the following papers if you are interested in using this code:
+A motion planning algorithm implemented in [OMPL](http://ompl.kavrakilab.org/), also using [Boost Graph Library](http://www.boost.org/doc/libs/1_64_0/libs/graph/doc/index.html). It is released under the [BSD License](https://opensource.org/licenses/BSD-2-Clause). The code is based on our upcoming IJRR submission. Doxygen-generated documentation is available [here](http://web.stanford.edu/~shushman/documentation/batching_pomp/index.html).
+In the meantime, please cite the following papers if you are interested in using this code:
 
 [1] *Choudhury, S., Salzman, O., Choudhury, S., & Srinivasa, S. S. (2017, May). Densification strategies for anytime motion planning over large dense roadmaps. In Robotics and Automation (ICRA), 2017 IEEE International Conference on (pp. 3770-3777). IEEE.*
 
