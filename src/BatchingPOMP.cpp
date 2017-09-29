@@ -50,7 +50,7 @@ class EdgeWeightMap
 {
 public:
   typedef boost::readable_property_map_tag category;
-  typedef BatchingPOMP::Edge key_type;
+  typedef Edge key_type;
   typedef double value_type;
   typedef double reference;
   BatchingPOMP& mPlanner;
@@ -63,19 +63,19 @@ public:
 /// \param[in] _ewMap The specific weight map instance
 /// \param[in] e The edge to compute weights for
 /// \Return The current weight of the edge
-const double get(const EdgeWeightMap& _ewMap, const BatchingPOMP::Edge& e)
+const double get(const EdgeWeightMap& _ewMap, const Edge& e)
 {
-  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::BLOCKED) {
+  if(_ewMap.mPlanner.g[e].blockedStatus == BLOCKED) {
     return std::numeric_limits<double>::max();
   }
 
   double alpha{_ewMap.mPlanner.getCurrentAlpha()};
 
-  if(_ewMap.mPlanner.g[e].blockedStatus == BatchingPOMP::FREE) {
+  if(_ewMap.mPlanner.g[e].blockedStatus == FREE) {
     return (alpha*_ewMap.mPlanner.g[e].distance);
   }
 
-  double w_m{-std::log(_ewMap.mPlanner.g[e].probFree)};
+  double w_m{_ewMap.mPlanner.g[e].collMeasure};
   double w_l{_ewMap.mPlanner.g[e].distance};
 
   double exp_cost{alpha*w_l + (1-alpha)*w_m};
@@ -91,28 +91,28 @@ class throw_visitor
 public:
   BatchingPOMP& mPlanner;
   /// The goal vertex upon reaching which the exception is to be thrown
-  BatchingPOMP::Vertex mVThrow;
+  Vertex mVThrow;
   throw_visitor(BatchingPOMP& _planner,
-                BatchingPOMP::Vertex _vThrow)
+                Vertex _vThrow)
   : mPlanner(_planner)
   , mVThrow{_vThrow} 
   {}
-  inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
-  inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
-  inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
+  inline void initialize_vertex(Vertex u, const Graph& g) {}
+  inline void discover_vertex(Vertex u, const Graph& g) {}
+  inline void examine_vertex(Vertex u, const Graph& g)
   {
     if(u == mVThrow) {
       throw throw_visitor_exception();
     }
   }
-  inline void examine_edge(BatchingPOMP::Edge e, const BatchingPOMP::Graph& g)
+  inline void examine_edge(Edge e, const Graph& g)
   {
-    mPlanner.computeAndSetEdgeFreeProbability(e);
+    mPlanner.computeAndSetEdgeCollisionMeasure(e);
   }
-  inline void edge_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
-  inline void edge_not_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
-  inline void black_target(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
-  inline void finish_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph & g) {}
+  inline void edge_relaxed(Edge e, const Graph & g) {}
+  inline void edge_not_relaxed(Edge e, const Graph & g) {}
+  inline void black_target(Edge e, const Graph & g) {}
+  inline void finish_vertex(Vertex u, const Graph & g) {}
 };
 
 
@@ -122,56 +122,56 @@ class neighbours_visitor
 public:
   BatchingPOMP& mPlanner;
   /// The nearest neighbour manager for vertices
-  ompl::NearestNeighbors<BatchingPOMP::Vertex>& mVertexNN;
+  ompl::NearestNeighbors<Vertex>& mVertexNN;
   /// The radius using which neighbours are to be searched for
   double mCurrRadius;
-  std::function<double(const BatchingPOMP::Vertex&, const BatchingPOMP::Vertex&)> mVertexDistFun;
-  BatchingPOMP::Vertex mVThrow;
+  std::function<double(const Vertex&, const Vertex&)> mVertexDistFun;
+  Vertex mVThrow;
 
   neighbours_visitor(BatchingPOMP& _planner,
-                     ompl::NearestNeighbors<BatchingPOMP::Vertex>& _vertexNN, 
+                     ompl::NearestNeighbors<Vertex>& _vertexNN, 
                      double _currRadius,
-                     BatchingPOMP::Vertex _vThrow)
+                     Vertex _vThrow)
   : mPlanner(_planner)
   , mVertexNN(_vertexNN)
   , mCurrRadius{_currRadius}
   , mVertexDistFun{mVertexNN.getDistanceFunction()}
   , mVThrow{_vThrow}
   {}
-  inline void initialize_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
-  inline void discover_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g) {}
-  inline void examine_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph& g)
+  inline void initialize_vertex(Vertex u, const Graph& g) {}
+  inline void discover_vertex(Vertex u, const Graph& g) {}
+  inline void examine_vertex(Vertex u, const Graph& g)
   {
     if(u == mVThrow) {
       throw throw_visitor_exception();
     }
 
-    std::vector<BatchingPOMP::Vertex> vertexNbrs;
+    std::vector<Vertex> vertexNbrs;
     mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
 
 
     // Now iterate through neighbors and check if edge exists between
     // u and neighbour. If it does not exist, create it AND set its
     // distance (one-time computation) based on provided distance function
-    for(BatchingPOMP::Vertex nbr : vertexNbrs){
+    for(Vertex nbr : vertexNbrs){
       // TODO : Find an efficient way to reject itself as a neighbour
       if(nbr == u){
         continue;
       }
       if(!boost::edge(u,nbr,mPlanner.g).second){
-        std::pair<BatchingPOMP::Edge,bool> new_edge = boost::add_edge(u,nbr,mPlanner.g);
+        std::pair<Edge,bool> new_edge = boost::add_edge(u,nbr,mPlanner.g);
         mPlanner.g[new_edge.first].distance = mVertexDistFun(boost::source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
-        mPlanner.g[new_edge.first].blockedStatus = BatchingPOMP::UNKNOWN;
+        mPlanner.g[new_edge.first].blockedStatus = UNKNOWN;
         mPlanner.initializeEdgePoints(new_edge.first);
-        mPlanner.computeAndSetEdgeFreeProbability(new_edge.first);
+        mPlanner.computeAndSetEdgeCollisionMeasure(new_edge.first);
       }
     }
   }
-  inline void examine_edge(BatchingPOMP::Edge e, const BatchingPOMP::Graph& g) {}
-  inline void edge_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
-  inline void edge_not_relaxed(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
-  inline void black_target(BatchingPOMP::Edge e, const BatchingPOMP::Graph & g) {}
-  inline void finish_vertex(BatchingPOMP::Vertex u, const BatchingPOMP::Graph & g) {}
+  inline void examine_edge(Edge e, const Graph& g) {}
+  inline void edge_relaxed(Edge e, const Graph & g) {}
+  inline void edge_not_relaxed(Edge e, const Graph & g) {}
+  inline void black_target(Edge e, const Graph & g) {}
+  inline void finish_vertex(Vertex u, const Graph & g) {}
 };
 
 
@@ -184,7 +184,7 @@ public:
   : mPlanner(_planner)
   {}
 
-  CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
+  CostType operator()(batching_pomp::Vertex u)
   {
     return mPlanner.getCurrentAlpha() * mPlanner.vertexDistFun(u, mPlanner.getGoalVertex());
   }
@@ -200,7 +200,7 @@ class zero_heuristic : public boost::astar_heuristic<Graph, CostType>
 public:
   zero_heuristic(){}
 
-  CostType operator()(batching_pomp::BatchingPOMP::Vertex u)
+  CostType operator()(batching_pomp::Vertex u)
   {
     return 0.0;
   }
@@ -336,12 +336,12 @@ double BatchingPOMP::getCurrentBestCost() const
   return mBestPathCost;
 }
 
-BatchingPOMP::Vertex BatchingPOMP::getStartVertex() const
+Vertex BatchingPOMP::getStartVertex() const
 {
   return mStartVertex;
 }
 
-BatchingPOMP::Vertex BatchingPOMP::getGoalVertex() const
+Vertex BatchingPOMP::getGoalVertex() const
 {
   return mGoalVertex;
 }
@@ -461,7 +461,7 @@ void BatchingPOMP::initializeEdgePoints(const Edge& e)
 }
 
 
-double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
+double BatchingPOMP::computeAndSetEdgeCollisionMeasure(const Edge& e)
 {
   // March along edge states with some jump factor
   // And estimate the probability of collision of each
@@ -487,13 +487,51 @@ double BatchingPOMP::computeAndSetEdgeFreeProbability(const Edge& e)
     result *= (1.0 - collProb);
   }
 
-  g[e].probFree = result;
+  double coll_meas{-std::log(result)};
+  g[e].collMeasure = coll_meas;
 
-  return result;
+  return coll_meas;
 }
 
 
-bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
+double BatchingPOMP::computeEdgeCollisionMeasureNoStates(const Vertex& u, const Vertex& v) const
+{
+  // Obtain start and end states
+  auto startState = g[u].v_state->state;
+  auto endState = g[v].v_state->state;
+
+  unsigned int nStates = static_cast<unsigned int>(std::floor(vertexDistFun(u,v) / (2.0*mCheckRadius)));
+  // Just start and goal
+  if(nStates < 2u) {
+    nStates = 2u;
+  }
+
+  // Helper variables for method
+  unsigned int stepSize{static_cast<unsigned int>(nStates/std::log(nStates))};
+  double result{1.0};
+
+  // Temp placeholder for each state
+  StateConPtr statePlaceholder(std::make_shared<StateCon>());
+
+  // Order of traversal
+  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
+
+  for(unsigned int i = 0; i < nStates-1; i+=stepSize)
+  {
+    // Interpolate and check point
+    mSpace->interpolate(startState, endState,
+      1.0*(1+order[i].first)/(nStates+1), statePlaceholder->state);
+    BeliefPoint query(statePlaceholder->state, mSpace->getDimension(), -1.0);
+    double collProb{mBeliefModel->estimate(query)};
+    result *= (1.0 - collProb);
+  }
+
+  double coll_meas{-std::log(result)};
+  return coll_meas;
+}
+
+
+bool BatchingPOMP::checkAndSetEdgeBlocked(const Edge& e)
 {
   // March along edge states with highest resolution
   mNumEdgeChecks++;
@@ -526,9 +564,9 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
       mBeliefModel->addPoint(toAdd);
 
       // Update edge properties to reflect blocked
-      g[e].blockedStatus = BatchingPOMP::BLOCKED;
+      g[e].blockedStatus = BLOCKED;
       g[e].distance = std::numeric_limits<double>::max();
-      g[e].probFree = 0.0;
+      g[e].collMeasure = std::numeric_limits<double>::max();
       return true;
     }
     else {
@@ -538,8 +576,8 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const BatchingPOMP::Edge& e)
   }
 
   // Update edge properties to reflect free
-  g[e].blockedStatus = BatchingPOMP::FREE;
-  g[e].probFree = 1.0;
+  g[e].blockedStatus = FREE;
+  g[e].collMeasure = 0.0;
   return false;
 }
 
@@ -584,7 +622,7 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
 
   for(Edge e : selectedEPath)
   {
-    if(g[e].blockedStatus == BatchingPOMP::UNKNOWN) {
+    if(g[e].blockedStatus == UNKNOWN) {
       
       if(checkAndSetEdgeBlocked(e)) {
         pathBlocked = true;
@@ -624,8 +662,8 @@ void BatchingPOMP::updateAffectedEdgeWeights()
 {
   for(const auto e : mEdgesToUpdate)
   {
-    if(g[e].blockedStatus == BatchingPOMP::UNKNOWN) {
-      computeAndSetEdgeFreeProbability(e);
+    if(g[e].blockedStatus == UNKNOWN) {
+      computeAndSetEdgeCollisionMeasure(e);
     }
   }
 

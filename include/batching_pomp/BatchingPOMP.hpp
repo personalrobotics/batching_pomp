@@ -47,73 +47,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "batching.hpp"
 #include "cspacebelief.hpp"
 #include "util.hpp"
-
+#include "GraphTypes.hpp"
 
 namespace batching_pomp {
 
-/// Composite struct to associate the state space with each state
-struct StateCon
-{
-  const ompl::base::StateSpacePtr space;
-  ompl::base::State * state;
-  StateCon(const ompl::base::StateSpacePtr _space)
-  : space{_space}
-  , state{space->allocState()} {}
-  ~StateCon() {space->freeState(this->state); }
-};
-
-typedef std::shared_ptr<StateCon> StateConPtr;
 
 /// The OMPL Planner class that implements the algorithm
 class BatchingPOMP : public ompl::base::Planner
 {
 
 public:
-
-  /// The edge is known to be collision-free
-  static const int FREE{1};
-
-  /// The edge is known to be in collision
-  static const int BLOCKED{-1};
-
-  /// The collision status of the edge is unknown
-  static const int UNKNOWN{0};
-
-  /// Properties associated with each roadmap vertex
-  struct VProps
-  {
-    /// The underlying state of the vertex
-    StateConPtr v_state;
-  };
-
-  /// Properties associated with each roadmap edge
-  struct EProps
-  {
-    /// The length of the edge using the space distance metric
-    double distance;
-
-    /// The probability of collision of the edge
-    double probFree;
-
-    /// The collision status of the edge (free, blocked or unknown)
-    int blockedStatus;
-
-    /// The set of states embedded in the edge
-    std::vector< StateConPtr > edgeStates;
-  };
-
-  // Graph definitions
-  typedef boost::adjacency_list< boost::vecS, boost::vecS, boost::undirectedS, VProps, EProps> Graph;
-  typedef boost::graph_traits<Graph>::vertex_descriptor Vertex;
-  typedef boost::graph_traits<Graph>::vertex_iterator VertexIter;
-  typedef boost::graph_traits<Graph>::edge_descriptor Edge;
-  typedef boost::graph_traits<Graph>::edge_iterator EdgeIter;
-  typedef boost::graph_traits<Graph>::out_edge_iterator OutEdgeIter;
-
-  // Boost property maps needed by planner
-  typedef boost::property_map<Graph, StateConPtr VProps::*>::type VPStateMap;
-  typedef boost::property_map<Graph, double EProps::*>::type EPDistanceMap;
-  typedef boost::property_map<Graph, boost::vertex_index_t>::type VertexIndexMap;
 
   /// The pointer to the OMPL state space 
   const ompl::base::StateSpacePtr mSpace;
@@ -123,6 +66,8 @@ public:
 
   /// The pointer to the C-space belief model instance to be used by the planner
   std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > mBeliefModel;
+
+  std::unique_ptr<ompl::NearestNeighborsGNAT<Vertex>> mVertexNN;
 
   /// The roadmap that will be continuously searched and updated.
   Graph g;
@@ -223,7 +168,13 @@ public:
   /// to the caller.
   /// \param[in] e The edge ID
   /// \return The computed collision measure of e as per the current model
-  double computeAndSetEdgeFreeProbability(const Edge& e);
+  double computeAndSetEdgeCollisionMeasure(const Edge& e);
+
+  /// Compute the collision measure of a potential edge
+  /// WITHOUT states initialized underneath
+  /// \param[in] e The edge ID
+  /// \return The computed collision measure of e as per the current model
+  double computeEdgeCollisionMeasureNoStates(const Vertex& u, const Vertex& v) const;
 
   /// Evaluate an edge to determine its collision status
   /// and assign it to the underlying property of the edge.
@@ -235,7 +186,6 @@ private:
 
   // Planning helpers
   std::unique_ptr<util::Selector<Graph>> mSelector;
-  std::unique_ptr<ompl::NearestNeighborsGNAT<Vertex>> mVertexNN;
   std::function<double(unsigned int)> mRadiusFun;
   util::BisectPerm mBisectPermObj;
   Vertex mStartVertex;

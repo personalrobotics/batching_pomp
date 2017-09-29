@@ -1,5 +1,5 @@
 /***********************************************************************
-Copyright (c) 2017, Shushman Choudhury
+Copyright (c) 2017, Carnegie Mellon University
 All rights reserved.
 Authors: Shushman Choudhury <shushmanchoudhury@gmail.com>
 
@@ -23,42 +23,74 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
+#ifndef BATCHING_POMP_BELIEF_RESAMPLING_BELIEFINFORMEDRESAMPLER_HPP_
+#define BATCHING_POMP_BELIEF_RESAMPLING_BELIEFINFORMEDRESAMPLER_HPP_
 
-#ifndef BATCHING_POMP_CSPACEBELIEF_MODEL_HPP_
-#define BATCHING_POMP_CSPACEBELIEF_MODEL_HPP_
+#include <functional>
+
+#include <ompl/base/StateSpace.h>
+#include <ompl/datastructures/NearestNeighbors.h>
+
+#include "cspacebelief.hpp"
+#include "GraphTypes.hpp"
+#include "batching_pomp/BatchingPOMP.hpp"
 
 namespace batching_pomp {
-namespace cspacebelief {
+namespace belief_resampling {
 
-//! Abstract class that represents the configuration space belief manager.
-  
-/// At a high level, the belief model only cares about updates to itself
-/// with new collision check data, or queries to estimate the probability
-/// of collision of an unknown configuration.
-/// @tparam _T A representation of the configuration space point and its collision check result.
-template <class _T>
-class Model
+class BeliefInformedResampler
 {
 public:
 
-    virtual ~Model() = default;
+BeliefInformedResampler(BatchingPOMP& _planner)
+: mPlanner(_planner)
+, mBeliefModel(_planner.mBeliefModel)
+, mSpace(_planner.mSpace)
+, mCurrentRoadmap(_planner.g)
+{
+}
 
-    /// Add a data point to the belief manager.
-    /// \param[in] data The datapoint to add to the belief manager.
-    virtual void addPoint(const _T &data) = 0;
+virtual ~BeliefInformedResampler() = default;
 
-    /// Remove a data point from the belief manager (rarely used)
-    /// \param[in] data The datapoint to remove from the belief manager.
-    virtual void removePoint(const _T &data) = 0;
+void setNumberOfSamples(unsigned int _nSamples)
+{
+	mBatchParams.first = _nSamples;
+}
 
-    /// Estimate the configuration space belief of the query
-    /// \param[in] query The datapoint for which the probability of collision is estimated.
-    /// \return The probability of collision of query in (0,1)
-    virtual double estimate(const _T &query) const = 0;
+void setConnectionRadius(double _radius)
+{
+	mBatchParams.second = _radius;
+}
+
+void setBatchParams(unsigned int _nSamples, double _radius)
+{
+	setNumberOfSamples(_nSamples);
+	setConnectionRadius(_radius);
+}
+
+virtual void updateRoadmap() = 0;
+
+
+protected:
+
+	/// The planner object itself
+	BatchingPOMP& mPlanner;
+
+	/// The pointer to the C-space belief model instance to be used by the sampler
+	std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > mBeliefModel;
+
+	/// The pointer to the OMPL state space 
+	const ompl::base::StateSpacePtr mSpace;
+
+	/// The underlying roadmap of the planner
+	Graph& mCurrentRoadmap;
+
+	/// Pair of samples and radius
+	std::pair<unsigned int, double> mBatchParams;
 
 };
 
 } //namespace cspacebelief
 } //namespace batching_pomp
 
-#endif //BATCHING_POMP_CSPACEBELIEF_MODEL_HPP_
+#endif
