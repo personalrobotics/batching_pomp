@@ -53,9 +53,10 @@ public:
   typedef Edge key_type;
   typedef double value_type;
   typedef double reference;
-  BatchingPOMP& mPlanner;
-  EdgeWeightMap(BatchingPOMP& _planner)
-  : mPlanner(_planner) {}
+  Graph& mCurrRoadmap;
+  double mAlpha;
+  EdgeWeightMap(Graph& _roadmap, double _alpha)
+  : mCurrRoadmap(_roadmap), mAlpha{_alpha} {}
 };
 
 /// Computes the current weight of a roadmap edge and supplies it
@@ -65,20 +66,19 @@ public:
 /// \Return The current weight of the edge
 const double get(const EdgeWeightMap& _ewMap, const Edge& e)
 {
-  if(_ewMap.mPlanner.g[e].blockedStatus == BLOCKED) {
+  if(_ewMap.mCurrRoadmap[e].blockedStatus == BLOCKED) {
     return std::numeric_limits<double>::max();
   }
 
-  double alpha{_ewMap.mPlanner.getCurrentAlpha()};
 
-  if(_ewMap.mPlanner.g[e].blockedStatus == FREE) {
-    return (alpha*_ewMap.mPlanner.g[e].distance);
+  if(_ewMap.mCurrRoadmap[e].blockedStatus == FREE) {
+    return (_ewMap.mAlpha * _ewMap.mCurrRoadmap[e].distance);
   }
 
-  double w_m{_ewMap.mPlanner.g[e].collMeasure};
-  double w_l{_ewMap.mPlanner.g[e].distance};
+  double w_m{_ewMap.mCurrRoadmap[e].collMeasure};
+  double w_l{_ewMap.mCurrRoadmap[e].distance};
 
-  double exp_cost{alpha*w_l + (1-alpha)*w_m};
+  double exp_cost{_ewMap.mAlpha*w_l + (1-_ewMap.mAlpha)*w_m};
   return exp_cost;
 }
 
@@ -116,6 +116,44 @@ public:
 };
 
 
+// TODO : Make dummy visitor
+class dummy_visitor
+{
+
+public:
+  BatchingPOMP& mPlanner;
+  Graph& mCurrRoadmap;
+  /// The goal vertex upon reaching which the exception is to be thrown
+  Vertex mVThrow;
+  dummy_visitor(BatchingPOMP& _planner,
+                Graph& _roadmap,
+                Vertex _vThrow)
+  : mPlanner(_planner)
+  , mCurrRoadmap(_roadmap)
+  , mVThrow{_vThrow} 
+  {}
+  inline void initialize_vertex(Vertex u, const Graph& g) {}
+  inline void discover_vertex(Vertex u, const Graph& g) {}
+  inline void examine_vertex(Vertex u, const Graph& g)
+  {
+    if(u == mVThrow) {
+      throw throw_visitor_exception();
+    }
+  }
+  inline void examine_edge(Edge e, const Graph& g)
+  {
+    if(!mCurrRoadmap[e].hasPoints) {
+      mPlanner.initializeEdgePoints(e);
+      mCurrRoadmap[e].hasPoints = true;
+    }
+  }
+  inline void edge_relaxed(Edge e, const Graph & g) {}
+  inline void edge_not_relaxed(Edge e, const Graph & g) {}
+  inline void black_target(Edge e, const Graph & g) {}
+  inline void finish_vertex(Vertex u, const Graph & g) {}
+};
+
+
 /// For implementing implicit r-neighbour graphs with boost
 class neighbours_visitor
 {
@@ -124,16 +162,20 @@ public:
   /// The nearest neighbour manager for vertices
   ompl::NearestNeighbors<Vertex>& mVertexNN;
   /// The radius using which neighbours are to be searched for
+
+  Graph& mCurrRoadmap;
   double mCurrRadius;
   std::function<double(const Vertex&, const Vertex&)> mVertexDistFun;
   Vertex mVThrow;
 
   neighbours_visitor(BatchingPOMP& _planner,
                      ompl::NearestNeighbors<Vertex>& _vertexNN, 
+                     Graph& _roadmap,
                      double _currRadius,
                      Vertex _vThrow)
   : mPlanner(_planner)
   , mVertexNN(_vertexNN)
+  , mCurrRoadmap(_roadmap)
   , mCurrRadius{_currRadius}
   , mVertexDistFun{mVertexNN.getDistanceFunction()}
   , mVThrow{_vThrow}
@@ -148,8 +190,7 @@ public:
 
     std::vector<Vertex> vertexNbrs;
     mVertexNN.nearestR(u,mCurrRadius,vertexNbrs);
-
-
+    
     // Now iterate through neighbors and check if edge exists between
     // u and neighbour. If it does not exist, create it AND set its
     // distance (one-time computation) based on provided distance function
@@ -158,12 +199,20 @@ public:
       if(nbr == u){
         continue;
       }
-      if(!boost::edge(u,nbr,mPlanner.g).second){
-        std::pair<Edge,bool> new_edge = boost::add_edge(u,nbr,mPlanner.g);
-        mPlanner.g[new_edge.first].distance = mVertexDistFun(boost::source(new_edge.first,mPlanner.g), target(new_edge.first,mPlanner.g));
-        mPlanner.g[new_edge.first].blockedStatus = UNKNOWN;
+      std::pair<Edge,bool> potential_edge = boost::edge(u,nbr,mCurrRoadmap);
+      if(!potential_edge.second){
+        std::pair<Edge,bool> new_edge = boost::add_edge(u,nbr,mCurrRoadmap);
+        mCurrRoadmap[new_edge.first].distance = mVertexDistFun(boost::source(new_edge.first,mCurrRoadmap), target(new_edge.first,mCurrRoadmap));
+        mCurrRoadmap[new_edge.first].blockedStatus = UNKNOWN;
+        mCurrRoadmap[new_edge.first].hasPoints = true;
         mPlanner.initializeEdgePoints(new_edge.first);
         mPlanner.computeAndSetEdgeCollisionMeasure(new_edge.first);
+      }
+      else {
+        if(! mCurrRoadmap[potential_edge.first].hasPoints) {
+          mPlanner.initializeEdgePoints(potential_edge.first);
+          mCurrRoadmap[potential_edge.first].hasPoints = true;
+        }
       }
     }
   }
@@ -219,9 +268,9 @@ double beliefDistanceFunction(
 }
 
 BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
-                           std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
-                           std::shared_ptr< cspacebelief::Model<BeliefPoint> > _beliefModel,
-                           std::unique_ptr< util::Selector<Graph> > _selector,
+                           std::shared_ptr< batching::BatchingManager >& _batchingPtr,
+                           std::shared_ptr< cspacebelief::Model<BeliefPoint> >& _beliefModel,
+                           std::shared_ptr< util::Selector<Graph>>& _selector,
                            const std::string& _roadmapFileName,
                            double _startGoalRadius,
                            double _increment,
@@ -230,7 +279,7 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 , mSpace(si->getStateSpace())
 , mBatchingPtr{_batchingPtr}
 , mBeliefModel{_beliefModel}
-, mSelector{std::move(_selector)}
+, mSelector{_selector}
 , mRoadmapName{_roadmapFileName}
 , mCurrentAlpha{0.0}
 , mStartGoalRadius{_startGoalRadius}
@@ -262,6 +311,11 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
     });
 
   mVertexNN->setDistanceFunction(distfun);
+
+  mBatchingType = _batchingPtr->getBatchingType();
+
+  Planner::setup();
+  assignBatchingRoadmap();
 }
 
 
@@ -428,27 +482,27 @@ void BatchingPOMP::setRoadmapFileName(const std::string& _roadmapFileName)
 // Public Helper Methods
 double BatchingPOMP::vertexDistFun(const Vertex& u, const Vertex& v) const
 {
-  return mSpace->distance(g[u].v_state->state, g[v].v_state->state);
+  return mSpace->distance((*g)[u].v_state->state, (*g)[v].v_state->state);
 }
 
 
 void BatchingPOMP::initializeEdgePoints(const Edge& e)
 {
-  auto startState = g[source(e,g)].v_state->state;
-  auto endState = g[target(e,g)].v_state->state;
+  auto startState = (*g)[source(e,(*g))].v_state->state;
+  auto endState = (*g)[target(e,(*g))].v_state->state;
 
-  unsigned int nStates = static_cast<unsigned int>(std::floor(g[e].distance / (2.0*mCheckRadius)));
+  unsigned int nStates = static_cast<unsigned int>(std::floor((*g)[e].distance / (2.0*mCheckRadius)));
   
   // Just start and goal
   if(nStates < 2u) {
     nStates = 2u;
   }
 
-  g[e].edgeStates.resize(nStates);
+  (*g)[e].edgeStates.resize(nStates);
 
   for(unsigned int i = 0; i < nStates; i++)
   {
-    g[e].edgeStates[i].reset(new StateCon(mSpace));
+    (*g)[e].edgeStates[i].reset(new StateCon(mSpace));
   }
 
   const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
@@ -456,7 +510,7 @@ void BatchingPOMP::initializeEdgePoints(const Edge& e)
   for(unsigned int i = 0; i < nStates; i++)
   {
     mSpace->interpolate(startState, endState,
-      1.0*(1+order[i].first)/(nStates+1), g[e].edgeStates[i]->state);
+      1.0*(1+order[i].first)/(nStates+1), (*g)[e].edgeStates[i]->state);
   }
 }
 
@@ -465,16 +519,16 @@ double BatchingPOMP::computeAndSetEdgeCollisionMeasure(const Edge& e)
 {
   // March along edge states with some jump factor
   // And estimate the probability of collision of each
-  auto startState = g[source(e,g)].v_state->state;
-  auto endState = g[target(e,g)].v_state->state;
+  auto startState = (*g)[source(e,(*g))].v_state->state;
+  auto endState = (*g)[target(e,(*g))].v_state->state;
 
-  auto nStates = g[e].edgeStates.size();
+  auto nStates = (*g)[e].edgeStates.size();
   unsigned int stepSize{static_cast<unsigned int>(nStates/std::log(nStates))};
   double result{1.0};
 
   for(unsigned int i = 1; i < nStates-1; i+=stepSize)
   {
-    BeliefPoint query(g[e].edgeStates[i]->state, mSpace->getDimension(), -1.0);
+    BeliefPoint query((*g)[e].edgeStates[i]->state, mSpace->getDimension(), -1.0);
 
     // Timing and counting block for model estimation
     mNumLookups++;
@@ -488,17 +542,17 @@ double BatchingPOMP::computeAndSetEdgeCollisionMeasure(const Edge& e)
   }
 
   double coll_meas{-std::log(result)};
-  g[e].collMeasure = coll_meas;
+  (*g)[e].collMeasure = coll_meas;
 
   return coll_meas;
 }
 
 
-double BatchingPOMP::computeEdgeCollisionMeasureNoStates(const Vertex& u, const Vertex& v) const
+double BatchingPOMP::computeEdgeCollisionMeasureNoStates(const Vertex& u, const Vertex& v)
 {
   // Obtain start and end states
-  auto startState = g[u].v_state->state;
-  auto endState = g[v].v_state->state;
+  auto startState = (*g)[u].v_state->state;
+  auto endState = (*g)[v].v_state->state;
 
   unsigned int nStates = static_cast<unsigned int>(std::floor(vertexDistFun(u,v) / (2.0*mCheckRadius)));
   // Just start and goal
@@ -511,7 +565,7 @@ double BatchingPOMP::computeEdgeCollisionMeasureNoStates(const Vertex& u, const 
   double result{1.0};
 
   // Temp placeholder for each state
-  StateConPtr statePlaceholder(std::make_shared<StateCon>());
+  StateConPtr statePlaceholder(std::make_shared<StateCon>(mSpace));
 
   // Order of traversal
   const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
@@ -536,51 +590,63 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const Edge& e)
   // March along edge states with highest resolution
   mNumEdgeChecks++;
 
-  addAffectedEdges(e);
+  if(mBatchingType != "dummy") {
+    addAffectedEdges(e);
+  }
 
   auto validityChecker = si_->getStateValidityChecker();
   
-  auto startState = g[source(e,g)].v_state->state;
-  auto endState = g[target(e,g)].v_state->state;
+  auto startState = (*g)[source(e,(*g))].v_state->state;
+  auto endState = (*g)[target(e,(*g))].v_state->state;
 
-  auto nStates = g[e].edgeStates.size();
+  auto nStates = (*g)[e].edgeStates.size();
 
-  for(unsigned int i = 1; i < nStates-1; i++)
+  //std::cout<<"Checking edge ("<<source(e,(*g))<<","<<target(e,(*g))<<")"<<std::endl;
+
+  for(unsigned int i = 0; i < nStates; i++)
   {
     ompl::base::ScopedState<> sstate(mSpace);
-    sstate = g[e].edgeStates[i]->state;
+    sstate = (*g)[e].edgeStates[i]->state;
+
+    //std::cout<<sstate<<std::endl;
 
     // Counting and timing block for collision checks
     mNumCollChecks++;
     std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
-    bool checkResult{validityChecker->isValid(g[e].edgeStates[i]->state)};
+    bool checkResult{validityChecker->isValid((*g)[e].edgeStates[i]->state)};
     std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
     std::chrono::duration<double> elapsedSeconds{endTime-startTime};
     mCollCheckTime += elapsedSeconds.count();
     
     if(checkResult == false) {
 
-      BeliefPoint toAdd(g[e].edgeStates[i]->state,mSpace->getDimension(),1.0);
+      BeliefPoint toAdd((*g)[e].edgeStates[i]->state,mSpace->getDimension(),1.0);
       mBeliefModel->addPoint(toAdd);
 
       // Update edge properties to reflect blocked
-      g[e].blockedStatus = BLOCKED;
-      g[e].distance = std::numeric_limits<double>::max();
-      g[e].collMeasure = std::numeric_limits<double>::max();
+      (*g)[e].blockedStatus = BLOCKED;
+      (*g)[e].distance = std::numeric_limits<double>::max();
+      (*g)[e].collMeasure = std::numeric_limits<double>::max();
       return true;
     }
     else {
-      BeliefPoint toAdd(g[e].edgeStates[i]->state,mSpace->getDimension(),0.0);
+      BeliefPoint toAdd((*g)[e].edgeStates[i]->state,mSpace->getDimension(),0.0);
       mBeliefModel->addPoint(toAdd);
     }
   }
 
   // Update edge properties to reflect free
-  g[e].blockedStatus = FREE;
-  g[e].collMeasure = 0.0;
+  (*g)[e].blockedStatus = FREE;
+  (*g)[e].collMeasure = 0.0;
   return false;
 }
 
+
+void BatchingPOMP::assignBatchingRoadmap()
+{
+  g = &(mBatchingPtr->mCurrentRoadmap);
+  full_g = &(mBatchingPtr->mFullRoadmap);
+}
 
 // Private helper methods
 double BatchingPOMP::haltonRadiusFun(unsigned int n) const
@@ -616,13 +682,15 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
 {
   // If selector type is set, then terminate as soon as an edge
   // is found to be in collision
-  std::vector<Edge> selectedEPath = mSelector->selectEdges(g,_ePath);
+  std::vector<Edge> selectedEPath = mSelector->selectEdges((*g),_ePath);
 
   bool pathBlocked{false};
+  //std::cout<<"Path : ";
 
   for(Edge e : selectedEPath)
   {
-    if(g[e].blockedStatus == UNKNOWN) {
+    //std::cout<<"("<<boost::source(e,(*g))<<","<<boost::target(e,(*g))<<")"<<" : Status "<<(*g)[e].blockedStatus<<"   ";
+    if((*g)[e].blockedStatus == UNKNOWN) {
       
       if(checkAndSetEdgeBlocked(e)) {
         pathBlocked = true;
@@ -632,24 +700,25 @@ bool BatchingPOMP::checkAndUpdatePathBlocked(const std::vector<Edge>& _ePath)
       }
     }
   }
+  //std::cout<<std::endl;
   return pathBlocked;
 }
 
 void BatchingPOMP::addAffectedEdges(const Edge& e)
 {
-  Vertex u = source(e,g);
-  Vertex v = target(e,g);
+  Vertex u = source(e,(*g));
+  Vertex v = target(e,(*g));
 
   OutEdgeIter ei, ei_end;
 
-  for (boost::tie(ei,ei_end)=out_edges(u,g); ei!=ei_end; ++ei)
+  for (boost::tie(ei,ei_end)=out_edges(u,(*g)); ei!=ei_end; ++ei)
   {
     if(mEdgesToUpdate.find(*ei) == mEdgesToUpdate.end()) {
       mEdgesToUpdate.insert(*ei);
     }
   }
 
-  for (boost::tie(ei,ei_end)=out_edges(v,g); ei!=ei_end; ++ei)
+  for (boost::tie(ei,ei_end)=out_edges(v,(*g)); ei!=ei_end; ++ei)
   {
     if(mEdgesToUpdate.find(*ei) == mEdgesToUpdate.end()) {
       mEdgesToUpdate.insert(*ei);
@@ -662,8 +731,10 @@ void BatchingPOMP::updateAffectedEdgeWeights()
 {
   for(const auto e : mEdgesToUpdate)
   {
-    if(g[e].blockedStatus == UNKNOWN) {
-      computeAndSetEdgeCollisionMeasure(e);
+    if((*g)[e].blockedStatus == UNKNOWN) {
+      if((*g)[e].hasPoints) {
+        computeAndSetEdgeCollisionMeasure(e);
+      }
     }
   }
 
@@ -678,8 +749,8 @@ bool BatchingPOMP::isVertexInadmissible(const ompl::base::State* vState) const
   }
 
   double bestCostThroughVertex
-    {mSpace->distance(g[mStartVertex].v_state->state,vState)
-      + mSpace->distance(g[mGoalVertex].v_state->state,vState)};
+    {mSpace->distance((*g)[mStartVertex].v_state->state,vState)
+      + mSpace->distance((*g)[mGoalVertex].v_state->state,vState)};
 
   return (bestCostThroughVertex > mBestPathCost);
 }
@@ -698,7 +769,7 @@ double BatchingPOMP::getPathDistance(const std::vector<Edge>& _ePath) const
   double pathDistance{0.0};
   for(auto e : _ePath)
   {
-    pathDistance += g[e].distance;
+    pathDistance += (*g)[e].distance;
   }
   return pathDistance;
 }
@@ -730,11 +801,11 @@ void BatchingPOMP::setup()
     unsigned int initNumVertices{100u};
     double vertInflFactor{2.0};
     
-    std::shared_ptr<batching::VertexBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> vbp 
-       = std::make_shared<batching::VertexBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
-        (mSpace, get(&VProps::v_state,full_g), mRoadmapName, full_g, g, initNumVertices, vertInflFactor);
+    std::shared_ptr<batching::VertexBatching> vbp 
+       = std::make_shared<batching::VertexBatching>
+        (mSpace, mRoadmapName, initNumVertices, vertInflFactor);
 
-    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager>
                   (std::move(vbp));
   }
   else if(mBatchingType == "edge") {
@@ -742,11 +813,11 @@ void BatchingPOMP::setup()
     double radiusInflFactor{std::pow(2.0,1/dimDbl)};
     double maxRadius{mSpace->getMaximumExtent()};
 
-    std::shared_ptr<batching::EdgeBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> ebp
-      = std::make_shared<batching::EdgeBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
-        (mSpace, get(&VProps::v_state,full_g), mRoadmapName, full_g, g, radiusInflFactor, mRadiusFun, maxRadius);
+    std::shared_ptr<batching::EdgeBatching> ebp
+      = std::make_shared<batching::EdgeBatching>
+        (mSpace, mRoadmapName, radiusInflFactor, mRadiusFun, maxRadius);
     
-    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager>
                   (std::move(ebp));
   }
   else if(mBatchingType == "hybrid") {
@@ -756,26 +827,26 @@ void BatchingPOMP::setup()
     double radiusInflFactor{std::pow(2.0,1/dimDbl)};
     double maxRadius{mSpace->getMaximumExtent()};
 
-    std::shared_ptr<batching::HybridBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> hbp
-     = std::make_shared<batching::HybridBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
-       (mSpace, get(&VProps::v_state,full_g), mRoadmapName, full_g, g, initNumVertices, vertInflFactor, radiusInflFactor, mRadiusFun, maxRadius);
+    std::shared_ptr<batching::HybridBatching> hbp
+     = std::make_shared<batching::HybridBatching>
+       (mSpace, mRoadmapName, initNumVertices, vertInflFactor, radiusInflFactor, mRadiusFun, maxRadius);
 
-    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager>
                   (std::move(hbp));
 
   }
   else if(mBatchingType == "single") {
 
-    std::shared_ptr<batching::SingleBatching<Graph,VPStateMap,StateCon,EPDistanceMap>> sbp 
-     = std::make_shared<batching::SingleBatching<Graph,VPStateMap,StateCon,EPDistanceMap>>
-        (mSpace, get(&VProps::v_state,full_g), get(&EProps::distance,full_g), mRoadmapName, full_g, g);
+    std::shared_ptr<batching::SingleBatching> sbp 
+     = std::make_shared<batching::SingleBatching>
+        (mSpace, mRoadmapName);
     
-    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap>>
+    mBatchingPtr = std::static_pointer_cast<batching::BatchingManager>
                   (std::move(sbp));
 
     // Setup all edges
     EdgeIter ei, ei_end;
-    for (boost::tie(ei,ei_end)=edges(g); ei!=ei_end; ++ei)
+    for (boost::tie(ei,ei_end)=edges((*g)); ei!=ei_end; ++ei)
     {
       initializeEdgePoints(*ei);
     }
@@ -783,6 +854,8 @@ void BatchingPOMP::setup()
   else {
     throw ompl::Exception("Invalid batching type specified - "+mBatchingType+"!");
   }
+
+  assignBatchingRoadmap();
 
   // Create selector with the type specified (normal if none)
   if(mSelectorType == "") {
@@ -798,6 +871,15 @@ void BatchingPOMP::setup()
 void BatchingPOMP::setProblemDefinition(
   const ompl::base::ProblemDefinitionPtr & pdef)
 {
+
+  if(!Planner::isSetup()) {
+    throw ompl::Exception("Planner MUST be set up before PDef setup!");
+  }
+
+  if(g == 0 || full_g == 0) {
+    throw ompl::Exception("One of the graphs is invalid!");
+  }
+
   ompl::base::Planner::setProblemDefinition(pdef);
 
   StateConPtr startState{std::make_shared<StateCon>(mSpace)};
@@ -815,38 +897,38 @@ void BatchingPOMP::setProblemDefinition(
   if(!validityChecker->isValid(startState->state)) {
     throw ompl::Exception("Start configuration is in collision!");
   }
-  mStartVertex = boost::add_vertex(g);
-  g[mStartVertex].v_state = startState;
+  mStartVertex = boost::add_vertex((*g));
+  (*g)[mStartVertex].v_state = startState;
   mVertexNN->add(mStartVertex);
 
   if(!validityChecker->isValid(goalState->state)) {
     throw ompl::Exception("Goal configuration is in collision!");
   }
-  mGoalVertex = boost::add_vertex(g);
-  g[mGoalVertex].v_state = goalState;
+  mGoalVertex = boost::add_vertex((*g));
+  (*g)[mGoalVertex].v_state = goalState;
   mVertexNN->add(mGoalVertex);
 
   // For single batch, add start and goal to roadmap with startGoalRadius
-  if(mBatchingType == "single") {
+  if(mBatchingType == "single" || mBatchingType == "dummy") {
 
     VertexIter vi, vi_end;
-    for(boost::tie(vi,vi_end)=vertices(g); vi!=vi_end; ++vi) {
+    for(boost::tie(vi,vi_end)=vertices((*g)); vi!=vi_end; ++vi) {
       if(*vi == mStartVertex || *vi== mGoalVertex) {
         continue;
       }
       double startDist = vertexDistFun(mStartVertex,*vi);
       if(startDist < mStartGoalRadius) {
-        std::pair<Edge, bool> new_edge = add_edge(*vi,mStartVertex,g);
-        g[new_edge.first].blockedStatus = UNKNOWN;
-        g[new_edge.first].distance = startDist;
+        std::pair<Edge, bool> new_edge = add_edge(*vi,mStartVertex,(*g));
+        (*g)[new_edge.first].blockedStatus = UNKNOWN;
+        (*g)[new_edge.first].distance = startDist;
         initializeEdgePoints(new_edge.first);
       }
 
       double goalDist = vertexDistFun(mGoalVertex,*vi);
       if(goalDist < mStartGoalRadius) {
-        std::pair<Edge, bool> new_edge = add_edge(*vi,mGoalVertex,g);
-        g[new_edge.first].blockedStatus = UNKNOWN;
-        g[new_edge.first].distance = goalDist;
+        std::pair<Edge, bool> new_edge = add_edge(*vi,mGoalVertex,(*g));
+        (*g)[new_edge.first].blockedStatus = UNKNOWN;
+        (*g)[new_edge.first].distance = goalDist;
         initializeEdgePoints(new_edge.first);
       }
     }
@@ -857,7 +939,6 @@ void BatchingPOMP::setProblemDefinition(
 ompl::base::PlannerStatus BatchingPOMP::solve(
   const ompl::base::PlannerTerminationCondition & ptc)
 {
-  
   double currSolnCost{std::numeric_limits<double>::max()};
   mIsPathFound = false;
   std::vector<Edge> ePath;
@@ -917,15 +998,33 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       // TODO : Assign to a generic visitor object?
       if(mBatchingType == "single") {
         boost::astar_search(
-          g,
+          (*g),
           mStartVertex,
           *heuristicFn,
           throw_visitor(*this, mGoalVertex),
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
-          EdgeWeightMap(*this),
-          boost::get(boost::vertex_index, g),
+          EdgeWeightMap((*g),mCurrentAlpha),
+          boost::get(boost::vertex_index, (*g)),
+          boost::make_assoc_property_map(colorMap),
+          std::less<double>(),
+          boost::closed_plus<double>(std::numeric_limits<double>::max()),
+          std::numeric_limits<double>::max(),
+          double()
+        );
+      }
+      else if(mBatchingType == "dummy") {
+        boost::astar_search(
+          (*g),
+          mStartVertex,
+          *heuristicFn,
+          dummy_visitor(*this, (*g), mGoalVertex),
+          boost::make_assoc_property_map(startPreds),
+          boost::make_assoc_property_map(startFValue),
+          boost::make_assoc_property_map(startDist),
+          EdgeWeightMap((*g),mCurrentAlpha),
+          boost::get(boost::vertex_index, (*g)),
           boost::make_assoc_property_map(colorMap),
           std::less<double>(),
           boost::closed_plus<double>(std::numeric_limits<double>::max()),
@@ -936,15 +1035,15 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       else {
         std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
         boost::astar_search(
-          g,
+          (*g),
           mStartVertex,
           *heuristicFn,
-          neighbours_visitor(*this, *mVertexNN, mBatchingPtr->getCurrentRadius(), mGoalVertex),
+          neighbours_visitor(*this, *mVertexNN, (*g), mBatchingPtr->getCurrentRadius(), mGoalVertex),
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
-          EdgeWeightMap(*this),
-          boost::get(boost::vertex_index, g),
+          EdgeWeightMap(*g,mCurrentAlpha),
+          boost::get(boost::vertex_index, (*g)),
           boost::make_assoc_property_map(colorMap),
           std::less<double>(),
           boost::closed_plus<double>(std::numeric_limits<double>::max()),
@@ -961,6 +1060,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     {
     }
     
+
     if(startDist[mGoalVertex] == std::numeric_limits<double>::max()) {
       // Did not find a path this time
       OMPL_INFORM("No new feasible path found in this batch!");
@@ -995,7 +1095,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     while(vWalk != mStartVertex)
     {
       Vertex vPred{startPreds[vWalk]};
-      std::pair<Edge, bool> edgePair{boost::edge(vPred, vWalk, g)};
+      std::pair<Edge, bool> edgePair{boost::edge(vPred, vWalk, (*g))};
       if(!edgePair.second) {
         throw ompl::Exception("Error! Edge present during search no longer exists in graph!");
       }
@@ -1005,6 +1105,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     if(ePath.size() > 1) {
       std::reverse(ePath.begin(), ePath.end());
     }
+
     // If path is free, set current cost to it, increment alpha
     bool pathBlocked{checkAndUpdatePathBlocked(ePath)};
 
@@ -1028,18 +1129,18 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
   double improvementFactor{mBestPathCost/currSolnCost};
   mBestPathCost = currSolnCost;
   mCurrBestPath = ePath;
-
   mBatchingPtr->updateWithNewSolutionCost(mBestPathCost);
 
   ompl::geometric::PathGeometric* path = new ompl::geometric::PathGeometric(si_);
-  VertexIndexMap vertex_id = get(boost::vertex_index,g);
+  VertexIndexMap vertex_id = get(boost::vertex_index,(*g));
 
-  path->append(g[mStartVertex].v_state->state);
+  path->append((*g)[mStartVertex].v_state->state);
 
   for(auto e : mCurrBestPath)
   {
-    path->append(g[target(e,g)].v_state->state);
+    path->append((*g)[target(e,(*g))].v_state->state);
   }
+
 
   pdef_->addSolutionPath(ompl::base::PathPtr(path));
 
