@@ -62,7 +62,7 @@ public:
   const ompl::base::StateSpacePtr mSpace;
 
   /// The pointer to the batching manager instance to be used by the planner
-  std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > mBatchingPtr;
+  std::shared_ptr< batching::BatchingManager > mBatchingPtr;
 
   /// The pointer to the C-space belief model instance to be used by the planner
   std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > mBeliefModel;
@@ -70,10 +70,10 @@ public:
   std::unique_ptr<ompl::NearestNeighborsGNAT<Vertex>> mVertexNN;
 
   /// The roadmap that will be continuously searched and updated.
-  Graph g;
+  Graph* g;
 
   /// The large, dense roadmap that remains unchanged after being loaded once
-  Graph full_g;
+  Graph* full_g;
 
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si);
 
@@ -90,9 +90,9 @@ public:
   /// \param[in] _increment The increment in the value of alpha after each POMP search
   /// \param[in] _pruneThreshold The fractional change in cost above which pruning of samples should be done
   BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
-               std::shared_ptr< batching::BatchingManager<Graph,VPStateMap,StateCon,EPDistanceMap> > _batchingPtr,
-               std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> > _beliefModel,
-               std::unique_ptr< util::Selector<Graph> > _selector,
+               std::shared_ptr< batching::BatchingManager >& _batchingPtr,
+               std::shared_ptr< cspacebelief::Model<cspacebelief::BeliefPoint> >& _beliefModel,
+               std::shared_ptr< util::Selector<Graph>>& _selector,
                const std::string& _roadmapFileName,
                double _startGoalRadius,
                double _increment = 0.2,
@@ -174,7 +174,7 @@ public:
   /// WITHOUT states initialized underneath
   /// \param[in] e The edge ID
   /// \return The computed collision measure of e as per the current model
-  double computeEdgeCollisionMeasureNoStates(const Vertex& u, const Vertex& v) const;
+  double computeEdgeCollisionMeasureNoStates(const Vertex& u, const Vertex& v);
 
   /// Evaluate an edge to determine its collision status
   /// and assign it to the underlying property of the edge.
@@ -182,10 +182,13 @@ public:
   /// \return True or False depending on if the edge is in collision or not
   bool checkAndSetEdgeBlocked(const Edge& e);
 
+
+  void assignBatchingRoadmap();
+
 private:
 
   // Planning helpers
-  std::unique_ptr<util::Selector<Graph>> mSelector;
+  std::shared_ptr< util::Selector<Graph>> mSelector;
   std::function<double(unsigned int)> mRadiusFun;
   util::BisectPerm mBisectPermObj;
   Vertex mStartVertex;

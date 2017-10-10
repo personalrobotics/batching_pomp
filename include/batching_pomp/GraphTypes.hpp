@@ -79,6 +79,9 @@ struct EProps
   /// The collision status of the edge (free, blocked or unknown)
   int blockedStatus;
 
+  /// Have the embedded points been initialized
+  bool hasPoints;
+
   /// The set of states embedded in the edge
   std::vector< StateConPtr > edgeStates;
 };

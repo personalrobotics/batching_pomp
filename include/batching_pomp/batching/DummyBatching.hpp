@@ -24,8 +24,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *************************************************************************/
 
-#ifndef BATCHING_POMP_SINGLE_BATCHING_HPP_
-#define BATCHING_POMP_SINGLE_BATCHING_HPP_
+#ifndef BATCHING_POMP_DUMMY_BATCHING_HPP_
+#define BATCHING_POMP_DUMMY_BATCHING_HPP_
 
 #include <ompl/base/StateSpace.h>
 #include <ompl/util/Console.h>
@@ -41,21 +41,17 @@ namespace batching {
 /// Implements the case where there is a single, reasonably sized roadmap
 /// that will be searched by POMP, without any batching. This is
 /// to allow a common framework to run POMP on a single roadmap.
-class SingleBatching : public BatchingManager
+class DummyBatching : public BatchingManager
 {
 
 public:
 
-  SingleBatching(const ompl::base::StateSpacePtr _space,
-                 std::string _roadmapFileName
+  DummyBatching(const ompl::base::StateSpacePtr _space,
+                std::string _roadmapFileName
                 )
   : BatchingManager(_space,_roadmapFileName)
   {
-    BatchingManager::mFileRoadmapPtr->generateEdges
-      (BatchingManager::mFullRoadmap,get(&VProps::v_state,BatchingManager::mFullRoadmap),
-        get(&EProps::distance,BatchingManager::mFullRoadmap));
-    BatchingManager::mCurrentRoadmap = BatchingManager::mFullRoadmap;
-    BatchingManager::mBatchingType = "single";
+    BatchingManager::mBatchingType = "dummy";
   }
 
   //////////////////////////////////////////////////
@@ -77,7 +73,7 @@ public:
 
     // You know there is only one batch
     // Now remove all invalid vertices
-    BatchingManager::pruneVertices(_pruneFunction,_vertexNN);
+    //BatchingManager::pruneVertices(_pruneFunction,_vertexNN);
 
     BatchingManager::mExhausted = true;
 
@@ -89,4 +85,4 @@ public:
 
 } // namespace batching
 } // namespace batching_pomp
-#endif // BATCHING_POMP_SINGLE_BATCHING_HPP_
+#endif // BATCHING_POMP_DUMMY_BATCHING_HPP_

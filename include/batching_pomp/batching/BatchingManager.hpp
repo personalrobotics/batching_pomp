@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/datastructures/NearestNeighbors.h>
 #include <boost/graph/adjacency_list.hpp>
 #include "batching_pomp/util/RoadmapFromFile.hpp"
+#include "batching_pomp/GraphTypes.hpp"
 
 namespace batching_pomp {
 namespace batching {
@@ -46,15 +47,9 @@ namespace batching {
 /// @tparam Graph The type of boost graph used for the roadmaps
 /// @tparam VStateMap The type of boost property map for vertex states
 /// @tparam StateCon The wrapper type for an ompl state
-/// @tparam EDistance The type of property map for edge lengths
-template<class Graph, class VStateMap, class StateCon, class EDistance>
+/// @tparam EPDistanceMap The type of property map for edge lengths
 class BatchingManager
 {
-
-typedef boost::graph_traits<Graph> GraphTypes;
-typedef typename GraphTypes::vertex_iterator VertexIter;
-typedef typename GraphTypes::vertex_descriptor Vertex;
-
 public:
 
   /// \param[in] _space The state space of the planner
@@ -63,47 +58,16 @@ public:
   /// \param[in] _fullRoadmap The complete roadmap loaded by the batching manager
   /// \param[in] _currentRoadmap The roadmap that the planner is currently searching
   BatchingManager(const ompl::base::StateSpacePtr _space,
-                  VStateMap _stateMap,
-                  std::string _roadmapFileName,
-                  Graph& _fullRoadmap,
-                  Graph& _currentRoadmap)
-  : mFullRoadmap(_fullRoadmap)
-  , mCurrentRoadmap(_currentRoadmap)
-  , mNumBatches{0u}
+                  std::string _roadmapFileName)
+  : mNumBatches{0u}
   , mExhausted{false}
   , mCurrRadius{0.0}
+  , mBatchingType{""}
   {
-    auto file_roadmap_ptr = std::make_shared<
-      batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
+    mFileRoadmapPtr = std::make_shared<
+      batching_pomp::util::RoadmapFromFile<Graph,VPStateMap,StateCon,EPDistanceMap>>
       (_space,_roadmapFileName);
-    file_roadmap_ptr->generateVertices(mFullRoadmap,_stateMap);
-    mNumVertices = num_vertices(mFullRoadmap);
-  }
-
-  /// Corresponding constructor for single batching strategy
-  /// \param[in] _space The state space of the planner
-  /// \param[in] _stateMap The property map for states of vertices
-  /// \param[in] _distanceMap The property map for the distance of edges
-  /// \param[in] _roadmapFileName The full path to roadmap .graphml file
-  /// \param[in] _fullRoadmap The complete roadmap loaded by the batching manager
-  /// \param[in] _currentRoadmap The roadmap that the planner is currently searching
-  BatchingManager(const ompl::base::StateSpacePtr _space,
-                  VStateMap _stateMap,
-                  EDistance _distanceMap,
-                  std::string _roadmapFileName,
-                  Graph& _fullRoadmap,
-                  Graph& _currentRoadmap)
-  : mFullRoadmap(_fullRoadmap)
-  , mCurrentRoadmap(_currentRoadmap)
-  , mNumBatches{0u}
-  , mExhausted{false}
-  , mCurrRadius{0.0}
-  {
-    auto file_roadmap_ptr = std::make_shared<
-      batching_pomp::util::RoadmapFromFile<Graph,VStateMap,StateCon,EDistance>>
-      (_space,_roadmapFileName);
-    file_roadmap_ptr->generateVertices(mFullRoadmap,_stateMap);
-    file_roadmap_ptr->generateEdges(mFullRoadmap,_stateMap,_distanceMap);
+    mFileRoadmapPtr->generateVertices(mFullRoadmap,get(&VProps::v_state,mFullRoadmap));
     mNumVertices = num_vertices(mFullRoadmap);
   }
 
@@ -126,10 +90,21 @@ public:
     return mExhausted;
   }
 
+  void setCurrentRadius(double _radius)
+  {
+    mCurrRadius = _radius;
+  }
+
   double getCurrentRadius() const
   {
     return mCurrRadius;
   }
+
+  std::string getBatchingType() const
+  {
+    return mBatchingType;
+  }
+
 
   const ompl::base::State* getVertexState(const Vertex& v) const
   {
@@ -164,6 +139,12 @@ public:
     }
   }
 
+  /// The entire roadmap that will be used for planning
+  Graph mFullRoadmap;
+
+  /// The roadmap currently being searched by the planner
+  Graph mCurrentRoadmap;
+
   /// Make any updates to batching manager with newest solution cost
   /// \param[in] _newSolnCost The current best solution cost with which
   ///                         to update the batching manager parameters
@@ -179,11 +160,7 @@ public:
 
 protected:
 
-  /// The entire roadmap that will be used for planning
-  Graph & mFullRoadmap;
 
-  /// The roadmap currently being searched by the planner
-  Graph & mCurrentRoadmap;
 
   /// The number of batches added till now
   unsigned int mNumBatches;
@@ -194,8 +171,12 @@ protected:
   /// The flag that maintains whether the complete roadmap has been fully searched or not.
   bool mExhausted;
 
+  std::shared_ptr<batching_pomp::util::RoadmapFromFile<Graph,VPStateMap,StateCon,EPDistanceMap>> mFileRoadmapPtr;
+
   /// The radius of connectivity for the current batch
   double mCurrRadius;
+
+  std::string mBatchingType;
 
 };
 

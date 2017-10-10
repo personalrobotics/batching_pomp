@@ -3,3 +3,4 @@
 #include "batching/HybridBatching.hpp"
 #include "batching/VertexBatching.hpp"
 #include "batching/SingleBatching.hpp"
+#include "batching/DummyBatching.hpp"

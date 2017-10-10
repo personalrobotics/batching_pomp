@@ -28,14 +28,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <exception>
+#include <random>
+#include <thread>
+
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/properties.hpp>
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 #include <boost/graph/astar_search.hpp>
 #include <boost/graph/properties.hpp>
 #include <boost/property_map/dynamic_property_map.hpp>
-#include <ompl/base/spaces/RealVectorStateSampler.h>
-
+#include <ompl/base/StateSpace.h>
+#include <ompl/base/ScopedState.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/util/Exception.h>
 #include <Eigen/Dense>
 
 #include "batching_pomp/GraphTypes.hpp"
@@ -53,23 +58,28 @@ class SGDBasedResampler : public virtual BeliefInformedResampler
 public:
 
   SGDBasedResampler(BatchingPOMP& _planner,
-                    double _perturbSize = 0.05,
-  									double _dAlpha = 0.05,
+                    unsigned int _numPerturbations,
+                    double _dAlpha,
+                    double _perturbSize = 0.1,
   									double _probThreshold = 1.0)
   : BeliefInformedResampler(_planner)
-  , mSpace(_planner.mSpace)
-  , mFullRoadmap(_planner.full_g)
+  , mFullRoadmap(*(_planner.full_g))
   , mCurrVertexNN(*(_planner.mVertexNN))
   , mStartVertex{_planner.getStartVertex()}
   , mGoalVertex{_planner.getGoalVertex()}
-  . mPerturbSize{_perturbSize}
+  , mNumPerturbations{_numPerturbations}
+  , mPerturbSize{_perturbSize}
   , mProbThreshold{_probThreshold}
   , mSimpleFlag{false}
+  , mSuccPerturbations{0u}
   {
   	unsigned int nAlphas = static_cast<unsigned int>(1.0/_dAlpha) + 1u;
   	alphaMinVector.resize(nAlphas);
+    alphaMinIdxVector.resize(nAlphas);
   	alphaSecondMinVector.resize(nAlphas);
   	boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
+    std::random_device rd;
+    mGen.seed(rd());
   }
 
   void setSimpleFlag()
@@ -82,32 +92,32 @@ public:
   {
   	// Iterate and add to current roadmap
   	unsigned int numVerticesAdded{0u};
-  	std::vector<Vertex> vertex_vector(BeliefInformedResampler::mBatchParams.first);
+  	std::vector<Vertex> vertex_vector(mBatchParams.first);
 
   	while(numVerticesAdded < BeliefInformedResampler::mBatchParams.first)
   	{
-  		BeliefPoint query(mFullRoadmap[*mCurrVertex].v_state->state, 
+  		cspacebelief::BeliefPoint query(mFullRoadmap[*mCurrVertex].v_state->state, 
   											BeliefInformedResampler::mSpace->getDimension(), -1.0);
 
   		// TODO - Add ellipse stuff
   		if(BeliefInformedResampler::mBeliefModel->estimate(query) < mProbThreshold) {
   			Vertex newVertex{boost::add_vertex(BeliefInformedResampler::BeliefInformedResampler::mCurrentRoadmap)};
 
-  			// TODO : Print vertex descriptors and verify that they are in order
-
   			BeliefInformedResampler::BeliefInformedResampler::mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
-  			vertex_vector[idx++] = newVertex;
-  			++numVerticesAdded;
+  			vertex_vector[numVerticesAdded++] = newVertex;
   		}
   		++mCurrVertex;
   	}
 
-  	if(idx > 0u) {
-  		vertex_vector.resize(idx);
+  	if(numVerticesAdded > 0u) {
+  		vertex_vector.resize(numVerticesAdded);
   		mCurrVertexNN.add(vertex_vector);
   	}
+    else{
+      throw ompl::Exception("No vertices satisfied probability threshold!");
+    }
 
-  	mNumCurrVertices = boost::num_vertices(BeliefInformedResampler::BeliefInformedResampler::mCurrentRoadmap);
+  	mNumCurrVertices = boost::num_vertices(BeliefInformedResampler::mCurrentRoadmap);
 
   	// Define edges based on mutual distance and compute edge weights
   	VertexIter vi, vi_end;
@@ -117,13 +127,12 @@ public:
 
   		for(Vertex nbr : vertexNbrs) {
   			if(nbr == *vi)
-  				continue
-  			if(!boost::edge(*vi, nbr, BeliefInformedResampler::mCurrentRoadmap)) {
+  				continue;
+  			if(!boost::edge(*vi, nbr, BeliefInformedResampler::mCurrentRoadmap).second) {
   				std::pair<Edge,bool> new_edge = boost::add_edge(*vi,nbr,BeliefInformedResampler::mCurrentRoadmap);
   				BeliefInformedResampler::mCurrentRoadmap[new_edge.first].distance = mPlanner.vertexDistFun(*vi,nbr);
   				BeliefInformedResampler::mCurrentRoadmap[new_edge.first].blockedStatus = UNKNOWN;
-
-  				// TODO : DANGEROUS GAME!!!
+          BeliefInformedResampler::mCurrentRoadmap[new_edge.first].hasPoints = false;
   				BeliefInformedResampler::mCurrentRoadmap[new_edge.first].collMeasure = mPlanner.computeEdgeCollisionMeasureNoStates(*vi, nbr);
   			}
   		}
@@ -133,15 +142,6 @@ public:
 
   void computeInitialScore()
   {
-  	//Initialize vectors
-  	M_to_come.resize(mNumCurrVertices);
-    M_preds.resize(mNumCurrVertices);
-    L_to_come.resize(mNumCurrVertices);
-    L_preds.resize(mNumCurrVertices);
-    M_to_go.resize(mNumCurrVertices);
-    M_succs.resize(mNumCurrVertices);
-    L_to_go.resize(mNumCurrVertices);
-    L_succs.resize(mNumCurrVertices);
     vertexImportance.resize(mNumCurrVertices,0.0);
 
     mInfiniteCostEdges.clear();
@@ -150,49 +150,55 @@ public:
 
     // First for M_to_come and L_to_come from start
     boost::dijkstra_shortest_paths(BeliefInformedResampler::mCurrentRoadmap, mStartVertex,
-    															 &M_preds[0], &M_to_come[0],
-    															 boost::get(EProps::collMeasure,BeliefInformedResampler::mCurrentRoadmap),
+    															 boost::make_assoc_property_map(M_preds),
+                                   boost::make_assoc_property_map(M_to_come),
+                                   boost::get(&EProps::collMeasure,BeliefInformedResampler::mCurrentRoadmap),
     															 boost::get(boost::vertex_index, BeliefInformedResampler::mCurrentRoadmap),
     															 std::less<double>(),
             											 boost::closed_plus<double>(std::numeric_limits<double>::max()), 
             											 std::numeric_limits<double>::max(),
             											 double(),
-            											 boost::default_dijkstra_visitor());
+            											 boost::make_dijkstra_visitor(boost::null_visitor()));
 
     boost::dijkstra_shortest_paths(BeliefInformedResampler::mCurrentRoadmap, mStartVertex,
-    															 &L_preds[0], &L_to_come[0],
-    															 boost::get(EProps::distance,BeliefInformedResampler::mCurrentRoadmap),
+    															 boost::make_assoc_property_map(L_preds),
+                                   boost::make_assoc_property_map(L_to_come),
+                                   boost::get(&EProps::distance,BeliefInformedResampler::mCurrentRoadmap),
     															 boost::get(boost::vertex_index, BeliefInformedResampler::mCurrentRoadmap),
     															 std::less<double>(),
             											 boost::closed_plus<double>(std::numeric_limits<double>::max()), 
             											 std::numeric_limits<double>::max(),
             											 double(),
-            											 boost::default_dijkstra_visitor());
+            											 boost::make_dijkstra_visitor(boost::null_visitor()));
 
     boost::dijkstra_shortest_paths(BeliefInformedResampler::mCurrentRoadmap, mGoalVertex,
-    															 &M_succs[0], &M_to_go[0],
-    															 boost::get(EProps::collMeasure,BeliefInformedResampler::mCurrentRoadmap),
+    															 boost::make_assoc_property_map(M_succs),
+                                   boost::make_assoc_property_map(M_to_go),
+                                   boost::get(&EProps::collMeasure,BeliefInformedResampler::mCurrentRoadmap),
     															 boost::get(boost::vertex_index, BeliefInformedResampler::mCurrentRoadmap),
     															 std::less<double>(),
             											 boost::closed_plus<double>(std::numeric_limits<double>::max()), 
             											 std::numeric_limits<double>::max(),
             											 double(),
-            											 boost::default_dijkstra_visitor());
+            											 boost::make_dijkstra_visitor(boost::null_visitor()));
 
     boost::dijkstra_shortest_paths(BeliefInformedResampler::mCurrentRoadmap, mGoalVertex,
-    															 &L_succs[0], &L_to_go[0],
-    															 boost::get(EProps::distance,BeliefInformedResampler::mCurrentRoadmap),
+    															 boost::make_assoc_property_map(L_succs),
+                                   boost::make_assoc_property_map(L_to_go),
+                                   boost::get(&EProps::distance,BeliefInformedResampler::mCurrentRoadmap),
     															 boost::get(boost::vertex_index, BeliefInformedResampler::mCurrentRoadmap),
     															 std::less<double>(),
             											 boost::closed_plus<double>(std::numeric_limits<double>::max()), 
             											 std::numeric_limits<double>::max(),
             											 double(),
-            											 boost::default_dijkstra_visitor());
+            											 boost::make_dijkstra_visitor(boost::null_visitor()));
 
+
+    // PRINT MAPS AND ENSURE ALL THERE
 
     // FOR EACH ALPHA, GET VECTORS OVER VERTICES AND COMPUTE SCORES
     // ALSO COMPUTE ALPHA SECOND MIN VECTOR
-    unsigned int nAlphas{alphaMinVector.size()};
+    unsigned int nAlphas = static_cast<unsigned int>(alphaMinVector.size());
 
     for(unsigned int i = 0u; i < nAlphas; i++) {
 
@@ -200,18 +206,22 @@ public:
 
     	std::vector<double> currAlphaScores(mNumCurrVertices);
 
-    	for(unsigned int j=0u; j< mNumCurrVertices; j++) {
-    		currAlphaScores[j] = currAlpha*(L_to_come[j] + L_to_go[j]) + (1.0 - currAlpha)*(M_to_come[j] + M_to_go[j])
-    	}
+      for (auto verValPair : L_to_come)
+      {
+        currAlphaScores[verValPair.first] = currAlpha*(verValPair.second + L_to_go[verValPair.second])
+          + (1.0 - currAlpha)*(M_to_come[verValPair.first] + M_to_go[verValPair.first]);
+      }
 
     	// Use custom min and second min to populate alpha vectors
       double min = std::numeric_limits<double>::infinity();
+      unsigned int min_idx{0u};
       double secondMin = std::numeric_limits<double>::infinity();
 
       for(unsigned int j=0u; j< mNumCurrVertices; j++) {
         if(currAlphaScores[j] < min) {
           secondMin = min;
           min = currAlphaScores[j];
+          min_idx = j;
         }
         else if(currAlphaScores[j] < secondMin && currAlphaScores[j] > min) {
           secondMin = currAlphaScores[j];
@@ -219,9 +229,10 @@ public:
       }
 
       alphaMinVector[i] = min;
+      alphaMinIdxVector[i] = min_idx;
       alphaSecondMinVector[i] = secondMin;
     
-      // Now iterate over vertices and assign 
+      // Now iterate over vertices and assign importance
       for(unsigned int j=0u; j< mNumCurrVertices; j++) {
         if(std::fabs(currAlphaScores[j] - min) < std::numeric_limits<double>::epsilon()) {
           vertexImportance[j] += secondMin - min;
@@ -229,23 +240,25 @@ public:
       }
     }
 
-    mCurrRoadmapScore = getScoreFromAlphaVector();
+    mCurrRoadmapScore = getScoreFromAlphaVector(alphaMinVector,alphaMinIdxVector);
+    std::cout<<"currentRoadmapScore - "<<mCurrRoadmapScore<<std::endl;
   }
 
   /// The score is basically the sum of the
   /// vector divided by the number of unique values (paths)
-  double getScoreFromAlphaVector(const std::vector<double>& _alphaMinVector) const
+  double getScoreFromAlphaVector(const std::vector<double>& _alphaMinVector,
+                                 const std::vector<unsigned int>& _alphaMinIdxVector) const
   {
-    double currVal{_alphaMinVector[0]}
-    double score{currVal};
+    unsigned int currIdx{_alphaMinIdxVector[0]};
+    double score{_alphaMinVector[0]};
     unsigned int numUniqueVals{1u};
-    unsigned int nAlphas{_alphaMinVector.size()};
+    unsigned int nAlphas = static_cast<unsigned int>(alphaMinVector.size());
 
     for(unsigned int i = 1u; i < nAlphas; i++) {
       score += _alphaMinVector[i];
-      if(std::fabs(_alphaMinVector[i] - currVal) > std::numeric_limits<double>::epsilon()) {
+      if(_alphaMinIdxVector[i] != currIdx) {
         numUniqueVals++;
-        currVal = _alphaMinVector[i];
+        currIdx = _alphaMinIdxVector[i];
       }
     }
 
@@ -254,23 +267,31 @@ public:
   }
 
 
-  StateConPtr perturbVertex(const Vertex& u) const
+  StateConPtr perturbVertexNaive(const Vertex& u) const
   {
-    StateConPtr perturbedState(std::make_shared<StateCon>());
+    StateConPtr perturbedState(std::make_shared<StateCon>(BeliefInformedResampler::mSpace));
 
-    RealVectorStateSampler rvSampler(mSpace);
+    ompl::base::RealVectorStateSampler rvSampler(mSpace.get());
 
-    rvSampler.sampleUniformNear(perturbedState->state, g[u].v_state->state, mStepSize);
+    rvSampler.sampleUniformNear(perturbedState->state, BeliefInformedResampler::mCurrentRoadmap[u].v_state->state, mPerturbSize);
 
     return perturbedState;
   }
 
 
-  double implementPerturbation(Vertex& u, const StateConPtr& _perturbedState) const
+  double implementPerturbation(Vertex& u, const StateConPtr& _perturbedState)
   {
+    cspacebelief::BeliefPoint query(_perturbedState->state, 
+                        BeliefInformedResampler::mSpace->getDimension(), -1.0);
+    if(BeliefInformedResampler::mBeliefModel->estimate(query) > mProbThreshold) {
+      return 0.0;
+    }
     // Use this as a proxy for new vertex
     Vertex tempNewVertex{boost::add_vertex(BeliefInformedResampler::mCurrentRoadmap)};
-    g[tempNewVertex].v_state = _perturbedState;
+    
+    //BeliefInformedResampler::mCurrentRoadmap[tempNewVertex].v_state = _perturbedState;
+    BeliefInformedResampler::mCurrentRoadmap[tempNewVertex].v_state = std::make_shared<StateCon>(mSpace);
+    mSpace->copyState(BeliefInformedResampler::mCurrentRoadmap[tempNewVertex].v_state->state, _perturbedState->state);
 
     // To recompute old info
     std::map<Vertex,std::pair<double,double>> newNbrVertexWeights;
@@ -280,9 +301,11 @@ public:
     for (boost::tie(ei,ei_end)=out_edges(u,BeliefInformedResampler::mCurrentRoadmap); ei!=ei_end; ++ei) {
 
       double edgeDist{mPlanner.vertexDistFun(boost::target(*ei,BeliefInformedResampler::mCurrentRoadmap), tempNewVertex)};
+
       
+
       // Edge invalid in temp new graph
-      if(edgeDist > BeliefInformedResampler::mBatchParams.second) {  
+      if(edgeDist > BeliefInformedResampler::mBatchParams.second) { 
         newNbrVertexWeights.insert(std::make_pair(boost::target(*ei,BeliefInformedResampler::mCurrentRoadmap),
           std::make_pair(std::numeric_limits<double>::infinity(),std::numeric_limits<double>::infinity())));
       }
@@ -305,14 +328,14 @@ public:
 
     for(Vertex tvnbr : tempVertexNbrs) {
 
-      std::pair<double,double> weights{std::make_pair(mPlanner.vertexDistFun(u,tvnbr), 
-            mPlanner.computeEdgeCollisionMeasureNoStates(u,tvnbr))};
+      std::pair<double,double> weights{std::make_pair(mPlanner.vertexDistFun(tempNewVertex,tvnbr), 
+            mPlanner.computeEdgeCollisionMeasureNoStates(tempNewVertex,tvnbr))};
 
-      if(!boost::edge(u,tvnbr,BeliefInformedResampler::mCurrentRoadmap).second) {
+      if(tvnbr != u && !boost::edge(u,tvnbr,BeliefInformedResampler::mCurrentRoadmap).second) {
         newNbrVertexWeights.insert(std::make_pair(tvnbr,weights));
       }
 
-      //Either way, update the M_tc,M_tg etc
+      //Either way, update the M_tc,M_tg  OF NEW VERTEX etc
       if(L_to_come[tvnbr] + weights.first < min_L_tc) {
         min_L_tc = L_to_come[tvnbr] + weights.first;
         L_pred = tvnbr;
@@ -333,7 +356,10 @@ public:
 
     typedef std::tuple<double,Vertex,double,Vertex,double,Vertex,double,Vertex> vertexInfoTuple;
 
+    //TODO : Just store the new indices for alphaMin etc. and then update in place at end?
+
     std::vector<double> tempAlphaVector(alphaMinVector);
+    std::vector<unsigned int> tempAlphaIdxVector(alphaMinIdxVector);
     std::vector<double> tempSecondAlphaVector(alphaSecondMinVector);
     std::map<Vertex, double> tempVertexImportanceMap;
     std::map<Vertex, vertexInfoTuple> tempVertexInfoMap;
@@ -358,7 +384,7 @@ public:
 
         OutEdgeIter ei, ei_end;
 
-        for(boost::tie(ei,ei_end)=out_edges(nbr); ei != ei_end; ++ei) {
+        for(boost::tie(ei,ei_end)=out_edges(nvnbr,BeliefInformedResampler::mCurrentRoadmap); ei != ei_end; ++ei) {
 
           Vertex candidate{boost::target(*ei,BeliefInformedResampler::mCurrentRoadmap)};
           double length, meas;
@@ -404,19 +430,19 @@ public:
       else{
         //Just update to tempNewVertex if it can be reached more easily
         if(min_L_tc + weights.first < L_to_come[nvnbr]) {
-          v_Min_L_tc = ltc + weights.first;
+          v_Min_L_tc = min_L_tc + weights.first;
           v_L_pred = u;
         }
         if(min_M_tc + weights.second < M_to_come[nvnbr]) {
-          v_Min_M_tc = mtc + weights.second;
+          v_Min_M_tc = min_M_tc + weights.second;
           v_M_pred = u;
         }
         if(min_L_tg + weights.first < L_to_go[nvnbr]) {
-          v_Min_L_tg = ltg + weights.first;
+          v_Min_L_tg = min_L_tg + weights.first;
           v_L_succ = u;
         }
         if(min_M_tg + weights.second < M_to_go[nvnbr]) {
-          v_Min_M_tg = mtg + weights.second;
+          v_Min_M_tg = min_M_tg + weights.second;
           v_M_succ = u;
         }
       }
@@ -430,7 +456,7 @@ public:
 
         vertexInfoTuple nvnbr_tuple = 
           std::make_tuple(v_Min_L_tc, v_L_pred, v_Min_M_tc, v_M_pred,
-                          v_Min_L_tg, v_L_succ v_Min_M_tg, v_M_succ)
+                          v_Min_L_tg, v_L_succ, v_Min_M_tg, v_M_succ);
         tempVertexInfoMap.insert(std::make_pair(nvnbr, nvnbr_tuple));
         tempVertexImportanceMap.insert(std::make_pair(nvnbr, vertexImportance[nvnbr]));
       }
@@ -438,7 +464,7 @@ public:
 
 
     // Now run through alphas and update score and importance for 
-    unsigned int nAlphas{alphaMinVector.size()};
+    unsigned int nAlphas = static_cast<unsigned int>(alphaMinVector.size());
 
     for(unsigned int i = 0u; i < nAlphas; i++) {
 
@@ -453,10 +479,11 @@ public:
         double alphaScore{currAlpha*(ltc+ltg) + (1.0 - currAlpha)*(mtc+mtg)};
 
         // Subtract importance if it gets worse
-        tempVertexImportanceMap[tvinfo.first] += alphaMinVector[i] - alphaScore;
-
+        
         if( alphaScore < alphaMinVector[i]) {
           tempAlphaVector[i] = alphaScore;
+          tempAlphaIdxVector[i] = tvinfo.first;
+          tempVertexImportanceMap[tvinfo.first] += alphaMinVector[i] - alphaScore;
         }
         else if (alphaScore < alphaSecondMinVector[i]) {
           tempSecondAlphaVector[i] = alphaScore;
@@ -464,16 +491,21 @@ public:
       }
     }
 
-    double newRoadmapScore{getScoreFromAlphaVector(tempAlphaVector)};
-    double improvement{mCurrRoadmapScore - newRoadmapScore};
+    double newRoadmapScore{getScoreFromAlphaVector(tempAlphaVector,tempAlphaIdxVector)};
+    double improvement{0.0};
 
     // Check if roadmap score improves
-    if(newRoadmapScore < mCurrRoadmapScore) {
+    if(mCurrRoadmapScore - newRoadmapScore > 0.00001) {
 
+      mSuccPerturbations++;
+      improvement = mCurrRoadmapScore - newRoadmapScore;
       mCurrRoadmapScore = newRoadmapScore;
+      std::cout<<"Vertex "<<u<<" of importance "<<vertexImportance[u]
+        <<" improved score by "<<improvement<<std::endl;
 
       // Change state of vertex and other values
       mSpace->copyState(BeliefInformedResampler::mCurrentRoadmap[u].v_state->state, _perturbedState->state);
+
       L_to_come[u] = min_L_tc;
       M_to_come[u] = min_M_tc;
       L_to_go[u] = min_L_tg;
@@ -482,6 +514,7 @@ public:
       M_preds[u] = M_pred;
       L_succs[u] = L_succ;
       M_succs[u] = M_succ;
+
 
       // Update edges
       for (auto nbr_wts : newNbrVertexWeights)
@@ -493,8 +526,8 @@ public:
         std::pair<Edge,bool> potential_edge = boost::edge(u,nbr,BeliefInformedResampler::mCurrentRoadmap);
 
         if(potential_edge.second) {
-          BeliefInformedResampler::mCurrentRoadmap[potential_edge].distance = weights.first;
-          BeliefInformedResampler::mCurrentRoadmap[potential_edge].collMeasure = weights.second;
+          BeliefInformedResampler::mCurrentRoadmap[potential_edge.first].distance = weights.first;
+          BeliefInformedResampler::mCurrentRoadmap[potential_edge.first].collMeasure = weights.second;
 
           if(weights.first == std::numeric_limits<double>::infinity()) {
             mInfiniteCostEdges.insert(potential_edge.first);
@@ -502,10 +535,13 @@ public:
         }
         else{
           std::pair<Edge,bool> new_edge = boost::add_edge(u,nbr,BeliefInformedResampler::mCurrentRoadmap);
-          BeliefInformedResampler::mCurrentRoadmap[new_edge].distance = weights.first;
-          BeliefInformedResampler::mCurrentRoadmap[new_edge].collMeasure = weights.second;
+          BeliefInformedResampler::mCurrentRoadmap[new_edge.first].distance = weights.first;
+          BeliefInformedResampler::mCurrentRoadmap[new_edge.first].collMeasure = weights.second;
+          BeliefInformedResampler::mCurrentRoadmap[new_edge.first].blockedStatus = UNKNOWN;
+          BeliefInformedResampler::mCurrentRoadmap[new_edge.first].hasPoints = false;
         }
       }
+
 
       // Update other vertices
       for(auto tvinfo : tempVertexInfoMap)
@@ -529,6 +565,7 @@ public:
 
       // Update alpha min vector and second min vector
       alphaMinVector = tempAlphaVector;
+      alphaMinIdxVector = tempAlphaIdxVector;
       alphaSecondMinVector = tempSecondAlphaVector;
     }
     
@@ -541,27 +578,98 @@ public:
   }
 
 
+  // NOTE - Just assuming start and goal are 0/1 or 1/0 respectively
+  unsigned int softMaxVertexSelection()
+  {
+    // Uses the current alpha score vector to select a vertex
+    std::vector<double> softmaxScores(mNumCurrVertices - 2);
+    double impScoreSum{0.0};
+
+    for(unsigned int i=2u ; i < mNumCurrVertices; i++)
+    {
+      impScoreSum += vertexImportance[i];
+    }
+
+    double softmaxScoreSum{0.0};
+    for(unsigned int i=2u ; i < mNumCurrVertices; i++)
+    {
+      softmaxScores[i-2] = std::exp(-vertexImportance[i]/impScoreSum);
+      softmaxScoreSum += softmaxScores[i-2];
+    }
+
+    std::uniform_real_distribution<> dis(0,1);
+    double threshold{dis(mGen)};
+    double thresholdCheck{0.0};
+
+    for(unsigned int idx=2u ; idx < mNumCurrVertices; idx++)
+    {
+      thresholdCheck += softmaxScores[idx-2]/softmaxScoreSum;
+
+      if(thresholdCheck > threshold) {
+        return idx;
+      }
+    }
+
+    return (mNumCurrVertices - 1);
+  }
+
+
+  unsigned int randomVertexSelection()
+  {
+    int numVerts = static_cast<int>(mNumCurrVertices);
+    std::uniform_int_distribution<> dis(2,mNumCurrVertices-1);
+    return static_cast<unsigned int>(dis(mGen));
+  }
+
+
 // TODO : Remove all edges with either weight infinite in main loop
 
   void updateRoadmap()
   {
     // First add initial samples
+    addInitialBatch();
 
+    // If simple flag, just return
+    if(mSimpleFlag) {
+      return;
+    }
 
     // Compute initial score
+    computeInitialScore();
 
+    for(unsigned int i=0; i < mNumPerturbations; i++)
+    {
+      // Choose a sample based on its importance
+      Vertex chosenVert{randomVertexSelection()};
+      StateConPtr perturbedState(perturbVertexNaive(chosenVert));
+      
+      double improvement = implementPerturbation(chosenVert, perturbedState);
+    }
 
-    // For K times
-    // Perturb and implement perturbation
+    std::cout<<"Final score - "<<mCurrRoadmapScore<<std::endl;
+    std::cout<<mSuccPerturbations<<" successful perturbations"<<std::endl;
+
+    // TODO : See if you need this
+    for(Edge e : mInfiniteCostEdges)
+    {
+      if(BeliefInformedResampler::mCurrentRoadmap[e].distance == std::numeric_limits<double>::infinity()) {
+        boost::remove_edge(e,BeliefInformedResampler::mCurrentRoadmap);
+      }
+    }
+  
   }
 
 
 private:
 
-  const ompl::base::StateSpacePtr mSpace;
-
   // Testing - step size of perturbation
   double mPerturbSize;
+  unsigned int mNumPerturbations;
+
+  // DEBUGGING
+  unsigned int mSuccPerturbations;
+
+  std::mt19937 mGen;
 
   bool mSimpleFlag;
 
@@ -579,16 +687,17 @@ private:
   std::set<Edge> mInfiniteCostEdges; 
 
   // For tracking additional info for vertices
-  std::vector<double> M_to_come;
-  std::vector<Vertex> M_preds;
-  std::vector<double> L_to_come;
-  std::vector<Vertex> L_preds;
-  std::vector<double> M_to_go;
-  std::vector<Vertex> M_succs;
-  std::vector<double> L_to_go;
-  std::vector<Vertex> L_succs;
+  std::map<Vertex,double> M_to_come;
+  std::map<Vertex,Vertex> M_preds;
+  std::map<Vertex,double> L_to_come;
+  std::map<Vertex,Vertex> L_preds;
+  std::map<Vertex,double> M_to_go;
+  std::map<Vertex,Vertex> M_succs;
+  std::map<Vertex,double> L_to_go;
+  std::map<Vertex,Vertex> L_succs;
   std::vector<double> vertexImportance;
   std::vector<double> alphaMinVector;
+  std::vector<unsigned int> alphaMinIdxVector;
   std::vector<double> alphaSecondMinVector;
 
   double mCurrRoadmapScore;

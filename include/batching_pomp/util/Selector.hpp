@@ -108,17 +108,17 @@ private:
   // Return in order of highest probability of collision
   std::vector<Edge> selectEdgesFailFast(const Graph& g, const std::vector<Edge>& epath) const
   {
-    std::vector < EdgePair > edgeProbList;
-    edgeProbList.reserve(epath.size());
+    std::vector < EdgePair > edgeMeasList;
+    edgeMeasList.reserve(epath.size());
     for(Edge e : epath) {
-      edgeProbList.push_back(std::make_pair(g[e].probFree,e));
+      edgeMeasList.push_back(std::make_pair(g[e].collMeasure,e));
     }
 
-    std::sort(edgeProbList.begin(), edgeProbList.end());
+    std::sort(edgeMeasList.rbegin(), edgeMeasList.rend());
 
     std::vector<Edge> orderedEdges;
-    orderedEdges.reserve(edgeProbList.size());
-    for(EdgePair ep : edgeProbList) {
+    orderedEdges.reserve(edgeMeasList.size());
+    for(EdgePair ep : edgeMeasList) {
       orderedEdges.push_back(ep.second);
     }
 
@@ -131,7 +131,7 @@ private:
     std::vector < EdgePair > edgeProbList;
     edgeProbList.reserve(epath.size());
     for(Edge e : epath) {
-      edgeProbList.push_back( std::make_pair(std::fabs(g[e].probFree-0.5),e) );
+      edgeProbList.push_back( std::make_pair(std::fabs(std::exp(-g[e].collMeasure)-0.5),e) );
     }
 
     std::sort(edgeProbList.begin(), edgeProbList.end());

@@ -41,14 +41,8 @@ namespace batching {
 
 /// Implements Vertex Batching, where batches of vertices are added
 /// and the complete subgraph is searched over each time.
-template<class Graph, class VStateMap, class StateCon, class EDistance>
-class VertexBatching : public BatchingManager<Graph, VStateMap, StateCon, EDistance> 
+class VertexBatching : public BatchingManager 
 {
-
-typedef boost::graph_traits<Graph> GraphTypes;
-typedef typename GraphTypes::vertex_iterator VertexIter;
-typedef typename GraphTypes::vertex_descriptor Vertex;
-
 
 public:
 
@@ -56,20 +50,17 @@ public:
   /// \param[in] _vertInflFactor The factor by which to increase the number of
   ///                            vertices in each batch.
   VertexBatching(const ompl::base::StateSpacePtr _space,
-                 VStateMap _stateMap,
                  std::string _roadmapFileName,
-                 Graph& _fullRoadmap,
-                 Graph& _currentRoadmap,
                  unsigned int _initNumVertices,
                  double _vertInflFactor
                  )
-  : BatchingManager<Graph, VStateMap, StateCon, EDistance>(_space,_stateMap,_roadmapFileName,_fullRoadmap,_currentRoadmap)
+  : BatchingManager(_space,_roadmapFileName)
   , mNumVerticesAdded{0u}
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
   {
-    BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrRadius = std::numeric_limits<double>::max();
-    boost::tie(mCurrVertex,mLastVertex) = vertices(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap);
+    BatchingManager::mCurrRadius = std::numeric_limits<double>::max();
+    boost::tie(mCurrVertex,mLastVertex) = vertices(BatchingManager::mFullRoadmap);
   }
 
   //////////////////////////////////////////////////
@@ -95,13 +86,13 @@ public:
                  ompl::NearestNeighbors<Vertex>& _vertexNN) override
   {
 
-    if(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted){
+    if(BatchingManager::mExhausted){
       OMPL_INFORM("Batching exhausted! No updates with nextBatch!");
       return;
     }
 
     OMPL_INFORM("New Vertex Batch called!");
-    ++BatchingManager<Graph, VStateMap, StateCon, EDistance>::mNumBatches;
+    ++BatchingManager::mNumBatches;
 
     std::vector<Vertex> vertex_vector(mNextVertexTarget - mNumVerticesAdded);
     size_t idx{0};
@@ -110,9 +101,9 @@ public:
     {
 
       // Only add if best cost through vertex better than current solution
-      if(!_pruneFunction(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*mCurrVertex].v_state->state)) {
-        Vertex newVertex{boost::add_vertex(BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap)};
-        BatchingManager<Graph, VStateMap, StateCon, EDistance>::mCurrentRoadmap[newVertex].v_state = BatchingManager<Graph, VStateMap, StateCon, EDistance>::mFullRoadmap[*mCurrVertex].v_state;
+      if(!_pruneFunction(BatchingManager::mFullRoadmap[*mCurrVertex].v_state->state)) {
+        Vertex newVertex{boost::add_vertex(BatchingManager::mCurrentRoadmap)};
+        BatchingManager::mCurrentRoadmap[newVertex].v_state = BatchingManager::mFullRoadmap[*mCurrVertex].v_state;
         vertex_vector[idx++] = newVertex;
       }
 
@@ -121,7 +112,7 @@ public:
       ++mNumVerticesAdded;
 
       if(mCurrVertex == mLastVertex) {
-        BatchingManager<Graph, VStateMap, StateCon, EDistance>::mExhausted = true;
+        BatchingManager::mExhausted = true;
         break;
       }
     }

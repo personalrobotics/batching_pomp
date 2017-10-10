@@ -31,8 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ompl/base/StateSpace.h>
 #include <ompl/datastructures/NearestNeighbors.h>
 
-#include "cspacebelief.hpp"
-#include "GraphTypes.hpp"
+#include "batching_pomp/cspacebelief.hpp"
+#include "batching_pomp/GraphTypes.hpp"
 #include "batching_pomp/BatchingPOMP.hpp"
 
 namespace batching_pomp {
@@ -44,9 +44,9 @@ public:
 
 BeliefInformedResampler(BatchingPOMP& _planner)
 : mPlanner(_planner)
-, mBeliefModel(_planner.mBeliefModel)
-, mSpace(_planner.mSpace)
-, mCurrentRoadmap(_planner.g)
+, mBeliefModel{_planner.mBeliefModel}
+, mSpace{_planner.mSpace}
+, mCurrentRoadmap(*(_planner.g))
 {
 }
 
