@@ -59,3 +59,7 @@ install(DIRECTORY
 # For example script
 add_executable(example_2d scripts/example_2d_image)
 target_link_libraries(example_2d ${PROJECT_NAME} ${OpenCV_LIBS})
+
+# For belief-resampling script
+add_executable(example_2d_resample scripts/example_2d_resampling)
+target_link_libraries(example_2d_resample ${PROJECT_NAME} ${OpenCV_LIBS})
