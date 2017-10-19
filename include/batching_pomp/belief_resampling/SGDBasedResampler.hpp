@@ -61,7 +61,7 @@ public:
                     unsigned int _numPerturbations,
                     double _dAlpha,
                     double _perturbSize = 0.1,
-  									double _probThreshold = 1.0)
+                    double _probThreshold = 1.0)
   : BeliefInformedResampler(_planner)
   , mFullRoadmap(*(_planner.full_g))
   , mCurrVertexNN(*(_planner.mVertexNN))
@@ -73,11 +73,11 @@ public:
   , mSimpleFlag{false}
   , mSuccPerturbations{0u}
   {
-  	unsigned int nAlphas = static_cast<unsigned int>(1.0/_dAlpha) + 1u;
-  	alphaMinVector.resize(nAlphas);
+    unsigned int nAlphas = static_cast<unsigned int>(1.0/_dAlpha) + 1u;
+    alphaMinVector.resize(nAlphas);
     alphaMinIdxVector.resize(nAlphas);
-  	alphaSecondMinVector.resize(nAlphas);
-  	boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
+    alphaSecondMinVector.resize(nAlphas);
+    boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
     std::random_device rd;
     mGen.seed(rd());
   }
