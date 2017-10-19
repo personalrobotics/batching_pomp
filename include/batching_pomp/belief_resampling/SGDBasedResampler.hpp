@@ -172,7 +172,7 @@ public:
             											 boost::make_dijkstra_visitor(boost::null_visitor()));
 
     boost::dijkstra_shortest_paths(BeliefInformedResampler::mCurrentRoadmap, mGoalVertex,
-    															 boost::make_assoc_property_map(M_succs),
+    													     boost::make_assoc_property_map(M_succs),
                                    boost::make_assoc_property_map(M_to_go),
                                    boost::get(&EProps::collMeasure,BeliefInformedResampler::mCurrentRoadmap),
     															 boost::get(boost::vertex_index, BeliefInformedResampler::mCurrentRoadmap),
