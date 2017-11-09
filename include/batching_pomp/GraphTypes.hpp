@@ -100,6 +100,50 @@ typedef boost::property_map<Graph, double EProps::*>::type EPDistanceMap;
 typedef boost::property_map<Graph, boost::vertex_index_t>::type VertexIndexMap;
 
 
+////////////////////////////////////////////////////////////////
+// Heuristics
+
+
+/// Euclidean distance heuristic for A-star search
+template<class Graph, class CostType>
+class exp_distance_heuristic : public boost::astar_heuristic<Graph, CostType>
+{
+public:
+  exp_distance_heuristic(double _alpha,
+                         Vertex _goalVertex,
+                         const std::function<double(const Vertex&, const Vertex&)>& _vertDistFun)
+  : mAlpha{_alpha}
+  , mGoalVertex{_goalVertex}
+  , mVertDistFun(_vertDistFun)
+  {}
+
+  CostType operator()(Vertex u)
+  {
+    return mAlpha * mVertDistFun(u, mGoalVertex);
+  }
+
+private:
+  double mAlpha;
+  Vertex mGoalVertex;
+  const std::function<double(const Vertex, const Vertex)> mVertDistFun;
+};
+
+/// Zero heuristic so astar can be used even when length is not considered in the objective function (alpha = 0)
+template<class Graph, class CostType>
+class zero_heuristic : public boost::astar_heuristic<Graph, CostType>
+{
+public:
+  zero_heuristic(){}
+
+  CostType operator()(batching_pomp::Vertex u)
+  {
+    return 0.0;
+  }
+};
+
+class throw_visitor_exception : public std::exception {};
+
+
 
 }	// namespace batching_pomp
 
