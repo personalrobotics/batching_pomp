@@ -82,17 +82,15 @@ const double get(const EdgeWeightMap& _ewMap, const Edge& e)
   return exp_cost;
 }
 
-class throw_visitor_exception : public std::exception {};
-
 /// Boost graph visitor that throws an exception when the goal vertex is popped.
-class throw_visitor
+class throw_visitor_search
 {
 
 public:
   BatchingPOMP& mPlanner;
   /// The goal vertex upon reaching which the exception is to be thrown
   Vertex mVThrow;
-  throw_visitor(BatchingPOMP& _planner,
+  throw_visitor_search(BatchingPOMP& _planner,
                 Vertex _vThrow)
   : mPlanner(_planner)
   , mVThrow{_vThrow} 
@@ -115,8 +113,6 @@ public:
   inline void finish_vertex(Vertex u, const Graph & g) {}
 };
 
-
-// TODO : Make dummy visitor
 class dummy_visitor
 {
 
@@ -221,38 +217,6 @@ public:
   inline void edge_not_relaxed(Edge e, const Graph & g) {}
   inline void black_target(Edge e, const Graph & g) {}
   inline void finish_vertex(Vertex u, const Graph & g) {}
-};
-
-
-/// Euclidean distance heuristic for A-star search
-template<class Graph, class CostType>
-class exp_distance_heuristic : public boost::astar_heuristic<Graph, CostType>
-{
-public:
-  exp_distance_heuristic(BatchingPOMP& _planner)
-  : mPlanner(_planner)
-  {}
-
-  CostType operator()(batching_pomp::Vertex u)
-  {
-    return mPlanner.getCurrentAlpha() * mPlanner.vertexDistFun(u, mPlanner.getGoalVertex());
-  }
-
-private:
-  BatchingPOMP& mPlanner;
-};
-
-/// Zero heuristic so astar can be used even when length is not considered in the objective function (alpha = 0)
-template<class Graph, class CostType>
-class zero_heuristic : public boost::astar_heuristic<Graph, CostType>
-{
-public:
-  zero_heuristic(){}
-
-  CostType operator()(batching_pomp::Vertex u)
-  {
-    return 0.0;
-  }
 };
 
 /// Computes (symmetric) distance metric between two belief-point instances
@@ -505,12 +469,12 @@ void BatchingPOMP::initializeEdgePoints(const Edge& e)
     (*g)[e].edgeStates[i].reset(new StateCon(mSpace));
   }
 
-  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
+  //const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
 
   for(unsigned int i = 0; i < nStates; i++)
   {
     mSpace->interpolate(startState, endState,
-      1.0*(1+order[i].first)/(nStates+1), (*g)[e].edgeStates[i]->state);
+      1.0*(1+i)/(nStates+1), (*g)[e].edgeStates[i]->state);
   }
 }
 
@@ -524,9 +488,17 @@ double BatchingPOMP::computeAndSetEdgeCollisionMeasure(const Edge& e)
 
   auto nStates = (*g)[e].edgeStates.size();
   unsigned int stepSize{static_cast<unsigned int>(nStates/std::log(nStates))};
-  double result{1.0};
+  double result{0.0};
 
-  for(unsigned int i = 1; i < nStates-1; i+=stepSize)
+  // Separately estimate for start and goal
+  BeliefPoint startQuery(startState,mSpace->getDimension(),-1.0);
+  BeliefPoint goalQuery(endState,mSpace->getDimension(),-1.0);
+  result += -std::log(1.0 - mBeliefModel->estimate(startQuery))
+            - std::log(1.0 - mBeliefModel->estimate(goalQuery));
+  mNumLookups += 2;
+  unsigned int effCount{2u};
+
+  for(unsigned int i = stepSize; i < nStates-stepSize; i+=stepSize)
   {
     BeliefPoint query((*g)[e].edgeStates[i]->state, mSpace->getDimension(), -1.0);
 
@@ -538,21 +510,33 @@ double BatchingPOMP::computeAndSetEdgeCollisionMeasure(const Edge& e)
     std::chrono::duration<double> elapsedSeconds{endTime-startTime};
     mLookupTime += elapsedSeconds.count();
 
-    result *= (1.0 - collProb);
+    result += -std::log(1.0 - mBeliefModel->estimate(query));
+    effCount++;
   }
 
-  double coll_meas{-std::log(result)};
-  (*g)[e].collMeasure = coll_meas;
+  result /= effCount;
 
-  return coll_meas;
+  (*g)[e].collMeasure = result;
+
+  return result;
 }
 
 
 double BatchingPOMP::computeEdgeCollisionMeasureNoStates(const Vertex& u, const Vertex& v)
 {
   // Obtain start and end states
-  auto startState = (*g)[u].v_state->state;
-  auto endState = (*g)[v].v_state->state;
+  // Get the lesser of the two as start and the other as end
+  Vertex min,max;
+  if(u < v){
+    min = u;
+    max = v;
+  }
+  else {
+    min = v;
+    max = u;
+  }
+  auto startState = (*g)[min].v_state->state;
+  auto endState = (*g)[max].v_state->state;
 
   unsigned int nStates = static_cast<unsigned int>(std::floor(vertexDistFun(u,v) / (2.0*mCheckRadius)));
   // Just start and goal
@@ -562,26 +546,29 @@ double BatchingPOMP::computeEdgeCollisionMeasureNoStates(const Vertex& u, const 
 
   // Helper variables for method
   unsigned int stepSize{static_cast<unsigned int>(nStates/std::log(nStates))};
-  double result{1.0};
+  double result{0.0};
+
+  // Separately estimate for start and goal
+  BeliefPoint startQuery(startState,mSpace->getDimension(),-1.0);
+  BeliefPoint goalQuery(endState,mSpace->getDimension(),-1.0);
+  result += -std::log(1.0 - mBeliefModel->estimate(startQuery))
+            - std::log(1.0 - mBeliefModel->estimate(goalQuery));
+  unsigned int effCount{2u};
+  mNumLookups += 2;
 
   // Temp placeholder for each state
   StateConPtr statePlaceholder(std::make_shared<StateCon>(mSpace));
 
-  // Order of traversal
-  const std::vector< std::pair<int,int> > & order = mBisectPermObj.get(nStates);
-
-  for(unsigned int i = 0; i < nStates-1; i+=stepSize)
+  for(unsigned int i = stepSize; i < nStates-stepSize; i+=stepSize)
   {
     // Interpolate and check point
     mSpace->interpolate(startState, endState,
-      1.0*(1+order[i].first)/(nStates+1), statePlaceholder->state);
+      1.0*(1+i)/(nStates+1), statePlaceholder->state);
     BeliefPoint query(statePlaceholder->state, mSpace->getDimension(), -1.0);
-    double collProb{mBeliefModel->estimate(query)};
-    result *= (1.0 - collProb);
+    result += -std::log(1.0 - mBeliefModel->estimate(query));
+    effCount ++;
   }
-
-  double coll_meas{-std::log(result)};
-  return coll_meas;
+  return (result/effCount);
 }
 
 
@@ -943,6 +930,9 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
   mIsPathFound = false;
   std::vector<Edge> ePath;
 
+  std::function<double(const Vertex&, const Vertex&)> vertDistFun = 
+          std::bind(&BatchingPOMP::vertexDistFun, this,std::placeholders::_1,std::placeholders::_2);
+
   while(currSolnCost >= mBestPathCost)
   {
 
@@ -990,7 +980,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
         heuristicFn.reset(new zero_heuristic<Graph,double>());
       }
       else {
-        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(*this));
+        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(mCurrentAlpha,mGoalVertex,vertDistFun));
       }
 
       mIsInitSearchBatch = false; // Either way, make it false
@@ -1001,11 +991,11 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           (*g),
           mStartVertex,
           *heuristicFn,
-          throw_visitor(*this, mGoalVertex),
+          throw_visitor_search(*this, mGoalVertex),
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
-          EdgeWeightMap((*g),mCurrentAlpha),
+          batching_pomp::EdgeWeightMap((*g),mCurrentAlpha),
           boost::get(boost::vertex_index, (*g)),
           boost::make_assoc_property_map(colorMap),
           std::less<double>(),
@@ -1023,7 +1013,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
-          EdgeWeightMap((*g),mCurrentAlpha),
+          batching_pomp::EdgeWeightMap((*g),mCurrentAlpha),
           boost::get(boost::vertex_index, (*g)),
           boost::make_assoc_property_map(colorMap),
           std::less<double>(),
@@ -1042,7 +1032,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           boost::make_assoc_property_map(startPreds),
           boost::make_assoc_property_map(startFValue),
           boost::make_assoc_property_map(startDist),
-          EdgeWeightMap(*g,mCurrentAlpha),
+          batching_pomp::EdgeWeightMap(*g,mCurrentAlpha),
           boost::get(boost::vertex_index, (*g)),
           boost::make_assoc_property_map(colorMap),
           std::less<double>(),
