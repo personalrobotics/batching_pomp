@@ -108,8 +108,7 @@ public:
 
   SGDBasedResampler(BatchingPOMP& _planner,
                     unsigned int _numPerturbations,
-                    double _dAlpha,
-                    double _perturbSize = 0.1,
+                    double _perturbSize,
                     double _probThreshold = 1.0)
   : BeliefInformedResampler(_planner)
   , mFullRoadmap(*(_planner.full_g))
@@ -119,18 +118,11 @@ public:
   , mNumPerturbations{_numPerturbations}
   , mPerturbSize{_perturbSize}
   , mProbThreshold{_probThreshold}
-  , mSimpleFlag{false}
   , mSuccPerturbations{0u}
   {
-    unsigned int nAlphas = static_cast<unsigned int>(1.0/_dAlpha) + 1u;
     boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
     std::random_device rd;
     mGen.seed(rd());
-  }
-
-  void setSimpleFlag()
-  {
-    mSimpleFlag = true;
   }
 
   /// Add the next n samples from list subject to thresholding conditions
@@ -955,11 +947,6 @@ public:
     // First add initial samples
     addInitialBatch();
 
-    // If simple flag, just return
-    if(mSimpleFlag) {
-      return;
-    }
-
     // Compute initial score
     mCurrRoadmapScore = getParetoConvexHullScore(mVertexImportance, mVertexToAlphaRangeMap);
     std::cout<<"Current Score - "<<mCurrRoadmapScore<<std::endl;
@@ -1003,8 +990,6 @@ private:
   unsigned int mSuccPerturbations;
 
   std::mt19937 mGen;
-
-  bool mSimpleFlag;
 
   Graph& mFullRoadmap;
   ompl::NearestNeighbors<Vertex>& mCurrVertexNN;
