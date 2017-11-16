@@ -123,7 +123,6 @@ public:
   , mSuccPerturbations{0u}
   {
     unsigned int nAlphas = static_cast<unsigned int>(1.0/_dAlpha) + 1u;
-    mAlphaPathWeightsVector.resize(nAlphas);
     boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
     std::random_device rd;
     mGen.seed(rd());
@@ -167,6 +166,8 @@ public:
 
     mNumCurrVertices = boost::num_vertices(mCurrentRoadmap);
 
+    mVertexImportance.resize(mNumCurrVertices,0.0);
+
     // Define edges based on mutual distance and compute edge weights
     VertexIter vi, vi_end;
     for(boost::tie(vi,vi_end)=vertices(mCurrentRoadmap); vi != vi_end; ++vi) {
@@ -187,138 +188,33 @@ public:
     }
   }
 
-/*
-  void computeInitialScore()
+  double getParetoConvexHullScore(std::vector<double>& _tempVertexImportance,
+                                  std::map<Vertex,std::set<std::pair<double,double>>>& _tempVertexToAlphaRangeMap)
   {
-    mVertexImportance.resize(mNumCurrVertices,0.0);
+    // ASSUMES tempVertexImportance initialized with zeros
 
-    mInfiniteCostEdges.clear();
+    typedef std::tuple<double,std::deque<Vertex>,std::pair<double, double> > alphaPathWeightTuple;
 
-    // RUN 4 DIJKSTRA SEARCHES WITH (Start,Goal) X (M,L)
+    std::set<alphaPathWeightTuple> uniqueCvxHullPaths;
 
-    // First for M_to_come and L_to_come from start
-    boost::dijkstra_shortest_paths(mCurrentRoadmap, mStartVertex,
-                                   boost::make_assoc_property_map(M_preds),
-                                   boost::make_assoc_property_map(M_to_come),
-                                   boost::get(&EProps::collMeasure,mCurrentRoadmap),
-                                   boost::get(boost::vertex_index, mCurrentRoadmap),
-                                   std::less<double>(),
-                                   boost::closed_plus<double>(std::numeric_limits<double>::max()), 
-                                   std::numeric_limits<double>::max(),
-                                   double(),
-                                   boost::make_dijkstra_visitor(boost::null_visitor()));
+    std::deque< std::pair<alphaPathWeightTuple, alphaPathWeightTuple> > frontierQ;
 
-    boost::dijkstra_shortest_paths(mCurrentRoadmap, mStartVertex,
-                                   boost::make_assoc_property_map(L_preds),
-                                   boost::make_assoc_property_map(L_to_come),
-                                   boost::get(&EProps::distance,mCurrentRoadmap),
-                                   boost::get(boost::vertex_index, mCurrentRoadmap),
-                                   std::less<double>(),
-                                   boost::closed_plus<double>(std::numeric_limits<double>::max()), 
-                                   std::numeric_limits<double>::max(),
-                                   double(),
-                                   boost::make_dijkstra_visitor(boost::null_visitor()));
+    std::vector< alphaPathWeightTuple > zeroOnePaths(2);
 
-    boost::dijkstra_shortest_paths(mCurrentRoadmap, mGoalVertex,
-                                   boost::make_assoc_property_map(M_succs),
-                                   boost::make_assoc_property_map(M_to_go),
-                                   boost::get(&EProps::collMeasure,mCurrentRoadmap),
-                                   boost::get(boost::vertex_index, mCurrentRoadmap),
-                                   std::less<double>(),
-                                   boost::closed_plus<double>(std::numeric_limits<double>::max()), 
-                                   std::numeric_limits<double>::max(),
-                                   double(),
-                                   boost::make_dijkstra_visitor(boost::null_visitor()));
-
-    boost::dijkstra_shortest_paths(mCurrentRoadmap, mGoalVertex,
-                                   boost::make_assoc_property_map(L_succs),
-                                   boost::make_assoc_property_map(L_to_go),
-                                   boost::get(&EProps::distance,mCurrentRoadmap),
-                                   boost::get(boost::vertex_index, mCurrentRoadmap),
-                                   std::less<double>(),
-                                   boost::closed_plus<double>(std::numeric_limits<double>::max()), 
-                                   std::numeric_limits<double>::max(),
-                                   double(),
-                                   boost::make_dijkstra_visitor(boost::null_visitor()));
-
-
-    // PRINT MAPS AND ENSURE ALL THERE
-
-    // FOR EACH ALPHA, GET VECTORS OVER VERTICES AND COMPUTE SCORES
-    // ALSO COMPUTE ALPHA SECOND MIN VECTOR
-    unsigned int nAlphas = static_cast<unsigned int>(alphaMinVector.size());
-
-    for(unsigned int i = 0u; i < nAlphas; i++) {
-
-      double currAlpha{static_cast<double>(i)/(nAlphas-1)};
-
-      std::vector<double> currAlphaScores(mNumCurrVertices);
-
-      for (auto verValPair : L_to_come)
-      {
-        currAlphaScores[verValPair.first] = currAlpha*(verValPair.second + L_to_go[verValPair.second])
-          + (1.0 - currAlpha)*(M_to_come[verValPair.first] + M_to_go[verValPair.first]);
-      }
-
-      // Use custom min and second min to populate alpha vectors
-      double min = std::numeric_limits<double>::infinity();
-      unsigned int min_idx{0u};
-      double secondMin = std::numeric_limits<double>::infinity();
-
-      for(unsigned int j=0u; j< mNumCurrVertices; j++) {
-        if(currAlphaScores[j] < min) {
-          secondMin = min;
-          min = currAlphaScores[j];
-          min_idx = j;
-        }
-        else if(currAlphaScores[j] < secondMin && currAlphaScores[j] > min) {
-          secondMin = currAlphaScores[j];
-        }
-      }
-
-      alphaMinVector[i] = min;
-      alphaMinIdxVector[i] = min_idx;
-      alphaSecondMinVector[i] = secondMin;
-    
-      // Now iterate over vertices and assign importance
-      for(unsigned int j=0u; j< mNumCurrVertices; j++) {
-        if(std::fabs(currAlphaScores[j] - min) < std::numeric_limits<double>::epsilon()) {
-          mVertexImportance[j] += secondMin - min;
-        }
-      }
-    }
-
-    mCurrRoadmapScore = getScoreFromAlphaVector(alphaMinVector,alphaMinIdxVector);
-    std::cout<<"currentRoadmapScore - "<<mCurrRoadmapScore<<std::endl;
-  }
-*/
-
-  double vertexDistFun(const Vertex& u, const Vertex& v) const
-  {
-    return mSpace->distance(mCurrentRoadmap[u].v_state->state, mCurrentRoadmap[v].v_state->state);
-  }
-
-  void computeInitialScore()
-  {
-    mVertexImportance.resize(mNumCurrVertices,0.0);
-
-    // For each alpha value, run an astar search
-    // Mark vertices along path and the alphas
-    unsigned int nAlphas = static_cast<unsigned int>(mAlphaPathWeightsVector.size());
 
     std::function<double(const Vertex& u, const Vertex& v)> vertDistFn = 
       std::bind(&SGDBasedResampler::vertexDistFun,this,std::placeholders::_1,std::placeholders::_2);
 
-    for(unsigned int i = 0u; i < nAlphas; i++) {
-
-      double currAlpha{static_cast<double>(i)/(nAlphas-1)};
-
+    //First try for alpha 0 and 1
+    for(unsigned int i = 0u; i <= 1u; i++)
+    {
+      double currAlpha = static_cast<double>(i);
       std::unique_ptr<boost::astar_heuristic<Graph, double>> heuristicFn;
       if(i == 0u){
         heuristicFn.reset(new zero_heuristic<Graph,double>());
       }
-      else {
-        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(currAlpha,mGoalVertex,vertDistFn));
+      else{
+        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(1.0,mGoalVertex,vertDistFn));
       }
 
       std::map<Vertex,Vertex> startPreds;
@@ -349,84 +245,222 @@ public:
       {
       }
 
-      // Now cycle through path
-      // Update vertex importance and compute M,L of path
-      if(startDist[mGoalVertex] == std::numeric_limits<double>::max()) {
+      if(startDist[mGoalVertex] == std::numeric_limits<double>::infinity()) {
         throw ompl::Exception("No candidate path found in roadmap");
       }
 
-      double pathScore{startDist[mGoalVertex]};
-      double pathLength{0.0};
-      double pathMeasure{0.0};
-      std::cout<<currAlpha<<" : ";
-      
-      Vertex vWalk{mGoalVertex};
-      mVertexImportance[mGoalVertex] += 1.0/pathScore;
-      if(mVertexToAlphasMap.find(mGoalVertex) != mVertexToAlphasMap.end()){
-        mVertexToAlphasMap[mGoalVertex].insert(i);
-      }
-      else{
-        mVertexToAlphasMap.insert(std::make_pair(mGoalVertex,std::set<unsigned int>()));
-        mVertexToAlphasMap[mGoalVertex].insert(i);
-      }
+      std::deque<Vertex> thisAlphaPath;
 
-      while(vWalk != mStartVertex)
+      std::pair<double, double> pathWeights = 
+          getPathWeightsAfterSearch(startPreds, thisAlphaPath);
+      
+      zeroOnePaths[i] = std::make_tuple(currAlpha, thisAlphaPath, pathWeights);
+    }
+
+    // Check if zero-one alpha equal
+    if(std::get<1>(zeroOnePaths[0]) == std::get<1>(zeroOnePaths[1]))
+    {
+      uniqueCvxHullPaths.insert(zeroOnePaths[0]);
+    }
+    else
+    {
+      // Now do the binary splitting stuff
+      uniqueCvxHullPaths.insert(zeroOnePaths[0]);
+      uniqueCvxHullPaths.insert(zeroOnePaths[1]);
+      frontierQ.push_back( std::make_pair(zeroOnePaths[0], zeroOnePaths[1]) );
+
+      while(!frontierQ.empty())
       {
-        Vertex vPred{startPreds[vWalk]};
-        std::pair<Edge, bool> edgePair{boost::edge(vPred, vWalk, mCurrentRoadmap)};
-        if(!edgePair.second) {
-          throw ompl::Exception("Error! Edge present during search no longer exists in graph!");
+        std::pair<alphaPathWeightTuple, alphaPathWeightTuple> 
+            frontierQtop = frontierQ.front();
+
+        frontierQ.pop_front();
+
+        double alphaLow, alphaHigh;
+        std::deque<Vertex> pathLow, pathHigh;
+        std::pair<double,double> weightsLow, weightsHigh;
+
+        std::tie(alphaLow,pathLow,weightsLow) = frontierQtop.first;
+        std::tie(alphaHigh,pathHigh,weightsHigh) = frontierQtop.second;
+
+        // alpha = atan2(l_alphalow - l_alphaHi)/(m_alphaHi - malphaLow)
+        //double newCurrAlpha = std::atan2(weightsLow.first - weightsHigh.first, weightsHigh.second - weightsLow.second);
+        double newCurrAlpha = 
+          (weightsHigh.second - weightsLow.second)/(weightsLow.first - weightsHigh.first + weightsHigh.second - weightsLow.second);
+
+
+        // Now search with newAlpha
+        std::map<Vertex,Vertex> startPreds;
+        std::map<Vertex,double> startDist;
+        std::map<Vertex,double> startFValue;
+        std::map<Vertex,boost::default_color_type> colorMap;
+
+        std::unique_ptr<boost::astar_heuristic<Graph, double>> heuristicFn;
+        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(1.0,mGoalVertex,vertDistFn));
+
+        try
+        {
+          boost::astar_search(
+            mCurrentRoadmap,
+            mStartVertex,
+            *heuristicFn,
+            throw_visitor_general(mGoalVertex),
+            boost::make_assoc_property_map(startPreds),
+            boost::make_assoc_property_map(startFValue),
+            boost::make_assoc_property_map(startDist),
+            EdgeSearchWeightMap(mCurrentRoadmap,newCurrAlpha),
+            boost::get(boost::vertex_index, mCurrentRoadmap),
+            boost::make_assoc_property_map(colorMap),
+            std::less<double>(),
+            boost::closed_plus<double>(std::numeric_limits<double>::max()),
+            std::numeric_limits<double>::max(),
+            double()
+          );
+        }
+        catch (const throw_visitor_exception & ex)
+        {
         }
 
-        std::cout<<vPred<<" ";
+        if(startDist[mGoalVertex] == std::numeric_limits<double>::max()) {
+          throw ompl::Exception("No candidate path found in roadmap");
+        }
 
-        mVertexImportance[vPred] += 1.0/pathScore;
-        pathLength += mCurrentRoadmap[edgePair.first].distance;
-        pathMeasure += mCurrentRoadmap[edgePair.first].collMeasure;
+        std::deque<Vertex> newCurrAlphaPathVertices;
+        std::pair<double, double> newCurrAlphaPathWeights = 
+          getPathWeightsAfterSearch(startPreds, newCurrAlphaPathVertices);
 
-        auto search = mVertexToAlphasMap.find(vPred);
-        if(search != mVertexToAlphasMap.end()){
-          search->second.insert(i);
+        // Now check if different from previous
+        if(newCurrAlphaPathVertices == pathLow || newCurrAlphaPathVertices == pathHigh)
+        {
+          // Same, break
+          break;
         }
         else{
-          mVertexToAlphasMap.insert(std::make_pair(vPred,std::set<unsigned int>()));
-          mVertexToAlphasMap[vPred].insert(i);
+          // Now enter new path in set and update frontier
+          alphaPathWeightTuple newFrontierElem = 
+            std::make_tuple(newCurrAlpha, newCurrAlphaPathVertices, newCurrAlphaPathWeights);
+          uniqueCvxHullPaths.insert(newFrontierElem);
+
+          //Now create two frontier elements with low and new and new and hi
+          frontierQ.push_back( std::make_pair(frontierQtop.first, newFrontierElem));
+          frontierQ.push_back( std::make_pair(newFrontierElem, frontierQtop.second));
         }
-        vWalk = vPred;
       }
-
-      std::cout<<"Weights : "<<pathLength<<" ; "<<pathMeasure<<std::endl;
-
-      // Add to 
-      mAlphaPathWeightsVector[i] = std::make_pair(pathLength,pathMeasure);
     }
 
-    mCurrRoadmapScore = getScoreFromAlphaVector(mAlphaPathWeightsVector);
+    double currAlpha{0.0};
+    double nextAlpha{0.0};
+    auto it_next = uniqueCvxHullPaths.begin();
+    it_next++;
+    auto it = uniqueCvxHullPaths.begin();
+
+    double roadmapScore{0.0};
+
+    //Now determine what to do with uniqueCvxHullPaths
+    for(; it_next != uniqueCvxHullPaths.end(); it++, it_next++)
+    {
+      std::pair<double,double> currWeights = std::get<2>(*it);
+      std::pair<double,double> nextWeights = std::get<2>(*it_next);
+
+      // Now compute the next alpha with atan2
+      nextAlpha = (nextWeights.second - currWeights.second)/(currWeights.first - nextWeights.first + nextWeights.second - currWeights.second);
+
+
+      // So this path is important from currAlpha to nextAlpha
+      std::deque<Vertex> currAlphaPathVertices = std::get<1>(*it);
+
+      double pathContrib = 
+        (currWeights.first/2.0)*(nextAlpha*nextAlpha - currAlpha*currAlpha) + 
+        (currWeights.second)*( (nextAlpha - 0.5*nextAlpha*nextAlpha) - (currAlpha - 0.5*currAlpha*currAlpha) );
+
+      if(pathContrib < std::numeric_limits<double>::epsilon()){
+        continue;
+      }
+
+      roadmapScore += pathContrib;
+
+      //std::cout<<"Pathcontrib "<<pathContrib<<" from "<<currAlpha<<" to "<<nextAlpha<<" ; path - ";
+
+      for(Vertex pv : currAlphaPathVertices)
+      {
+        //std::cout<<pv<<" ";
+        _tempVertexImportance[pv] += 1.0/pathContrib;
+        auto search = _tempVertexToAlphaRangeMap.find(pv);
+        if(search != _tempVertexToAlphaRangeMap.end()){
+          search->second.insert( std::make_pair(currAlpha, nextAlpha));
+        }
+        else{
+          _tempVertexToAlphaRangeMap.insert(std::make_pair(pv, std::set<std::pair<double,double>>()));
+          _tempVertexToAlphaRangeMap[pv].insert( std::make_pair(currAlpha, nextAlpha));
+        }
+      }
+
+      currAlpha = nextAlpha;
+      //std::cout<<"Weights : "<<currWeights.first<<","<<currWeights.second<<std::endl;
+    }
+
+    // Now do for the alpha = 1 case
+    nextAlpha = 1.0;
+    std::pair<double,double> lastWeights = std::get<2>(*it);
+    std::deque<Vertex> lastAlphaPathVertices = std::get<1>(*it);
+    double pathContrib = 
+        (lastWeights.first/2.0)*(nextAlpha*nextAlpha - currAlpha*currAlpha) + 
+        (lastWeights.second)*( (nextAlpha - 0.5*nextAlpha*nextAlpha) - (currAlpha - 0.5*currAlpha*currAlpha) );
+    roadmapScore += pathContrib;
+    //std::cout<<"Pathcontrib "<<pathContrib<<" from "<<currAlpha<<" to "<<nextAlpha<<" ; path - ";
+    for(Vertex pv : lastAlphaPathVertices)
+    {
+      //std::cout<<pv<<" ";
+      _tempVertexImportance[pv] += 1.0/pathContrib;
+      auto search = _tempVertexToAlphaRangeMap.find(pv);
+      if(search != _tempVertexToAlphaRangeMap.end()){
+        search->second.insert( std::make_pair(currAlpha, nextAlpha));
+      }
+      else{
+        _tempVertexToAlphaRangeMap.insert(std::make_pair(pv, std::set<std::pair<double,double>>()));
+        _tempVertexToAlphaRangeMap[pv].insert( std::make_pair(currAlpha, nextAlpha));
+      }
+    }
+    //std::cout<<"Weights : "<<lastWeights.first<<","<<lastWeights.second<<std::endl;
+    return roadmapScore;
+
   }
 
-/*
-  /// The score is basically the sum of the
-  /// vector divided by the number of unique values (paths)
-  double getScoreFromAlphaVector(const std::vector<double>& _alphaMinVector,
-                                 const std::vector<unsigned int>& _alphaMinIdxVector) const
+  double vertexDistFun(const Vertex& u, const Vertex& v) const
   {
-    unsigned int currIdx{_alphaMinIdxVector[0]};
-    double score{_alphaMinVector[0]};
-    unsigned int numUniqueVals{1u};
-    unsigned int nAlphas = static_cast<unsigned int>(alphaMinVector.size());
+    return mSpace->distance(mCurrentRoadmap[u].v_state->state, mCurrentRoadmap[v].v_state->state);
+  }
 
-    for(unsigned int i = 1u; i < nAlphas; i++) {
-      score += _alphaMinVector[i];
-      if(_alphaMinIdxVector[i] != currIdx) {
-        numUniqueVals++;
-        currIdx = _alphaMinIdxVector[i];
+  void computeInitialScore()
+  {
+    mCurrRoadmapScore = getParetoConvexHullScore(mVertexImportance, mVertexToAlphaRangeMap);
+  }
+
+  std::pair<double,double> getPathWeightsAfterSearch(const std::map<Vertex, Vertex>& _startPreds,
+                                                     std::deque<Vertex>& _pathVertices)
+  {
+    // We are assuming that a path exists from start to goal
+    Vertex vWalk{mGoalVertex};
+    _pathVertices.push_front(mGoalVertex);
+    double pathLength{0.0};
+    double pathMeasure{0.0};
+
+    while(vWalk!=mStartVertex)
+    {
+      Vertex vPred{_startPreds.at(vWalk)};
+      _pathVertices.push_front(vPred);
+      std::pair<Edge, bool> edgePair{boost::edge(vPred, vWalk, mCurrentRoadmap)};
+      if(!edgePair.second) {
+        throw ompl::Exception("Error! Edge present during search no longer exists in graph!");
       }
+
+      pathLength += mCurrentRoadmap[edgePair.first].distance;
+      pathMeasure += mCurrentRoadmap[edgePair.first].collMeasure;
+      vWalk = vPred;
     }
 
-    score /= numUniqueVals;
-    return score;
+    return std::make_pair(pathLength, pathMeasure);
   }
-*/
 
   double getScoreFromAlphaVector(const std::vector<std::pair<double,double>>& _alphaWeightsVector) const
   {
@@ -450,10 +484,9 @@ public:
     }
 
     // TODO : Play around with this
-    // score /= numUniqueVals;
+    score /= numUniqueVals;
     return score;
   }
-
 
   bool perturbVertexNaive(const Vertex& u, StateConPtr& perturbedState) const
   {
@@ -470,105 +503,11 @@ public:
     return false;
   }
 
-
-  // bool perturbVertexApproxGrad(const Vertex& u, StateConPtr& perturbedState) const
-  // {
-  //   // Iterate through neighbors of u and compute L and M and sum
-  //   double vert_LM_pdt{0.0};
-  //   unsigned int idx{0u};
-  //   OutEdgeIter ei, ei_end;
-  //   for (boost::tie(ei,ei_end)=out_edges(u,mCurrentRoadmap); ei!=ei_end; ++ei) {
-  //     vert_LM_pdt += mCurrentRoadmap[*ei].distance * mCurrentRoadmap[*ei].collMeasure;
-  //     idx++;
-  //   }
-
-  //   // Get estimate of vertex
-  //   unsigned int nDims{mSpace->getDimension()};
-  //   cspacebelief::BeliefPoint query(mCurrentRoadmap[u].v_state->state, 
-  //                                   nDims, -1.0);
-  //   double vertLogProb{-std::log(mBeliefModel->estimate(query))};
-
-  //   double GRAD_EPSILON{0.001};
-
-  //   Eigen::VectorXd grads(nDims);
-  //   //std::cout<<"Coords - ";
-  //   for(unsigned int d=0u; d < nDims; d++)
-  //   {
-  //     StateConPtr oneDimPerturbed(std::make_shared<StateCon>(mSpace));
-  //     mSpace->copyState(oneDimPerturbed->state, mCurrentRoadmap[u].v_state->state);
-
-  //     // Perturb along dimension
-  //     double* values = oneDimPerturbed->state->as<
-  //       ompl::base::RealVectorStateSpace::StateType>()->values;
-  //     //std::cout<<values[d]<<" ";
-  //     values[d] = values[d] + GRAD_EPSILON;
-
-  //     // Now compute new edge lengths and measures and compute difference
-  //     double new_LM_pdt{0.0};
-
-  //     for (boost::tie(ei,ei_end)=out_edges(u,mCurrentRoadmap); ei!=ei_end; ++ei) {
-  //       Vertex v{boost::target(*ei,mCurrentRoadmap)};
-
-  //       // compute perturbed length and measure
-  //       double new_length{mSpace->distance(oneDimPerturbed->state, mCurrentRoadmap[v].v_state->state)};
-
-  //       cspacebelief::BeliefPoint per_query(oneDimPerturbed->state, 
-  //                       mSpace->getDimension(), -1.0);
-  //       double newLogProb{-std::log(mBeliefModel->estimate(per_query))};
-  //       double new_meas = mCurrentRoadmap[*ei].collMeasure + newLogProb - vertLogProb;
-  //       new_LM_pdt += new_length*new_meas;
-  //     }
-
-  //     grads[d] = (new_LM_pdt - vert_LM_pdt) / GRAD_EPSILON;
-  //   }
-
-  //   // Normalize vector
-  //   grads.stableNormalize();
-  //   //std::cout<<std::endl<<"GRADS - "<<grads<<std::endl;
-
-  //   if(isnan(grads[0]) || isnan(grads[1])){
-  //     return false;
-  //   }
-
-  //   // Now what????
-  //   // Do backtracking line search till collision-free?
-  //   double stepSize{mPerturbSize};
-  //   StateConPtr perturbedStateCopy(std::make_shared<StateCon>(mSpace));
-  //   while(stepSize > 0.01)
-  //   {
-  //     mSpace->copyState(perturbedStateCopy->state, mCurrentRoadmap[u].v_state->state);
-  //     double* values = perturbedStateCopy->state->as<
-  //       ompl::base::RealVectorStateSpace::StateType>()->values;
-  //     for(unsigned int d=0u; d < nDims; d++)
-  //     {
-  //       values[d] = values[d] + stepSize*grads[d];
-  //     }
-
-  //     if( mSpace->satisfiesBounds(perturbedStateCopy->state) &&
-  //           mPlanner.getSpaceInformation()->isValid(perturbedStateCopy->state)) {
-  //       break;
-  //     }
-
-  //     stepSize /= 2.0;
-  //   }
-
-  //   //std::cout<<stepSize<<std::endl;
-
-  //   if(stepSize > 0.01) {
-  //     mSpace->copyState(perturbedState->state,perturbedStateCopy->state);
-  //     return true;
-  //   }
-
-  //   return false;
-
-  // }
-
-
   bool perturbVertexApproxGradImportance(const Vertex& u, StateConPtr& perturbedState) const
   {
     double alphaWeightSum{0.0};
-    unsigned int nAlphas = static_cast<unsigned int>(mAlphaPathWeightsVector.size());
-    std::map<Edge,std::set<unsigned int>> importantEdgesWithAlphas;
+    
+    std::map<Edge,std::set<std::pair<double, double>>> importantEdgesWithAlphaRanges;
 
     // First find all neighbours who have non-zero importance and store those edges
     OutEdgeIter ei, ei_end;
@@ -578,31 +517,32 @@ public:
         
         // Find intersection between alpha sets of u and nbr 
         // And add those to edgeAlphas
-        std::set<unsigned int> idx_intersection;
-        std::set_intersection(mVertexToAlphasMap.at(u).begin(), mVertexToAlphasMap.at(u).end(),
-                              mVertexToAlphasMap.at(nbr).begin(), mVertexToAlphasMap.at(nbr).end(),
-                              std::inserter(idx_intersection,idx_intersection.begin()));
-        if(idx_intersection.size() > 0){
-          importantEdgesWithAlphas.insert(std::make_pair(*ei,idx_intersection));
+        std::set<std::pair<double, double>> alpha_range_intersection;
+        std::set_intersection(mVertexToAlphaRangeMap.at(u).begin(), mVertexToAlphaRangeMap.at(u).end(),
+                              mVertexToAlphaRangeMap.at(nbr).begin(), mVertexToAlphaRangeMap.at(nbr).end(),
+                              std::inserter(alpha_range_intersection,alpha_range_intersection.begin()));
+        if(alpha_range_intersection.size() > 0){
+          importantEdgesWithAlphaRanges.insert(std::make_pair(*ei,alpha_range_intersection));
         }
       }
     }
-    //std::cout<<"Important edges stored"<<std::endl;
 
     // Iterate over alpha indices which vertex minimized
-    std::cout<<"Alphas to care about - ";
-    for(auto edgeAlphas : importantEdgesWithAlphas)
+    //std::cout<<"Alpha Ranges to care about - ";
+    for(auto edgeAlphaRanges : importantEdgesWithAlphaRanges)
     {
-      Edge e{edgeAlphas.first};
-      std::set<unsigned int> impAlphas(edgeAlphas.second);
-      std::cout<<"("<<mCurrentRoadmap[e].distance<<","<<mCurrentRoadmap[e].collMeasure<<") ";
+      Edge e{edgeAlphaRanges.first};
+      std::set<std::pair<double, double>> impAlphaRanges(edgeAlphaRanges.second);
+      //std::cout<<e<<" : ("<<mCurrentRoadmap[e].distance<<","<<mCurrentRoadmap[e].collMeasure<<") - ";
 
-      for(unsigned int alphaIdx : impAlphas) {
-        double currAlpha{static_cast<double>(alphaIdx)/(nAlphas-1)};
-        std::cout<<currAlpha<<" ";
-        alphaWeightSum += currAlpha*mCurrentRoadmap[e].distance + (1.0 - currAlpha)*mCurrentRoadmap[e].collMeasure;
+      for(auto alphaRange : impAlphaRanges) {
+        //std::cout<<alphaRange.first<<" to "<<alphaRange.second<<"  ";
+        alphaWeightSum +=
+          (mCurrentRoadmap[e].distance/2.0)*(alphaRange.second*alphaRange.second - alphaRange.first*alphaRange.first) +
+          (mCurrentRoadmap[e].collMeasure)*( (alphaRange.second - 0.5*alphaRange.second*alphaRange.second) 
+                                           - (alphaRange.first - 0.5*alphaRange.first*alphaRange.first) );
       }
-      std::cout<<std::endl;
+      //std::cout<<std::endl;
     }
 
     // Get estimate of vertex
@@ -612,7 +552,7 @@ public:
     double vertLogProb{-std::log(1.0 - mBeliefModel->estimate(query))};
     Eigen::VectorXd grads(nDims);
 
-    std::cout<<"Alphawtsum vs new wts : "<<alphaWeightSum<<std::endl;
+    //std::cout<<"Alphawtsum vs new wts : "<<alphaWeightSum<<std::endl;
 
     bool localMin{true};
 
@@ -635,10 +575,10 @@ public:
       double newAlphaWtSum{0.0};
       double newAlphaWtSum2{0.0};
 
-      for(auto edgeAlphas : importantEdgesWithAlphas)
+      for(auto edgeAlphaRanges : importantEdgesWithAlphaRanges)
       {
-        Edge e{edgeAlphas.first};
-        std::set<unsigned int> impAlphas(edgeAlphas.second);
+        Edge e{edgeAlphaRanges.first};
+        std::set<std::pair<double, double>> impAlphaRanges(edgeAlphaRanges.second);
 
         Vertex v{boost::target(e,mCurrentRoadmap)};
 
@@ -654,19 +594,24 @@ public:
         double newLogProb2{-std::log(1.0 - mBeliefModel->estimate(per_query2))};
         double new_meas2 = mCurrentRoadmap[e].collMeasure + newLogProb2 - vertLogProb;
 
-        std::cout<<e<<" : ("<<new_length<<","<<new_meas<<") ";
-        std::cout<<e<<" : ("<<new_length2<<","<<new_meas2<<") ";
+        // std::cout<<e<<" : ("<<new_length<<","<<new_meas<<") ";
+        // std::cout<<e<<" : ("<<new_length2<<","<<new_meas2<<") ";
 
-        for(unsigned int alphaIdx : impAlphas) {
-          double currAlpha{static_cast<double>(alphaIdx)/(nAlphas-1)};
-          std::cout<<currAlpha<<" ";
-          newAlphaWtSum += currAlpha*new_length + (1-currAlpha)*new_meas;
-          newAlphaWtSum2 += currAlpha*new_length2 + (1-currAlpha)*new_meas2;
+        for(auto alphaRange : impAlphaRanges) {
+          //std::cout<<alphaRange.first<<" to "<<alphaRange.second;
+          newAlphaWtSum += 
+            (new_length/2.0)*(alphaRange.second*alphaRange.second - alphaRange.first*alphaRange.first) +
+            (new_meas)*( (alphaRange.second - 0.5*alphaRange.second*alphaRange.second) 
+                                           - (alphaRange.first - 0.5*alphaRange.first*alphaRange.first) );
+          newAlphaWtSum2 += 
+            (new_length2/2.0)*(alphaRange.second*alphaRange.second - alphaRange.first*alphaRange.first) +
+            (new_meas2)*( (alphaRange.second - 0.5*alphaRange.second*alphaRange.second) 
+                                           - (alphaRange.first - 0.5*alphaRange.first*alphaRange.first) );
         }
-      std::cout<<std::endl;  
+      //std::cout<<std::endl;  
       }
 
-      std::cout<<newAlphaWtSum<<" ; "<<newAlphaWtSum2<<std::endl;
+      //std::cout<<newAlphaWtSum<<" ; "<<newAlphaWtSum2<<std::endl;
       grads[d] = (newAlphaWtSum - newAlphaWtSum2) / (2*GRAD_EPSILON);
 
       if(newAlphaWtSum < alphaWeightSum || newAlphaWtSum2 < alphaWeightSum){
@@ -678,14 +623,16 @@ public:
       return false;
     }
 
-    std::cout<<std::endl<<grads.norm()<<std::endl;
-    grads.stableNormalize();
+    //std::cout<<std::endl<<grads.norm()<<std::endl;
+    grads.normalize();
 
-    if(isnan(grads[0]) || isnan(grads[1])){
+    if(std::isnan(grads[0]) || std::isnan(grads[1])){
       return false;
     }
 
-    std::cout<<grads<<std::endl;
+    //std::cout<<grads<<std::endl;
+
+    //throw ompl::Exception("IMP STOP!");
 
     double stepSize{mPerturbSize};
     StateConPtr perturbedStateCopy(std::make_shared<StateCon>(mSpace));
@@ -699,7 +646,7 @@ public:
         values[d] = values[d] - stepSize*grads[d];
       }
 
-      if( mSpace->satisfiesBounds(perturbedStateCopy->state) &&
+      if(mSpace->satisfiesBounds(perturbedStateCopy->state) &&
             mPlanner.getSpaceInformation()->isValid(perturbedStateCopy->state)) {
         break;
       }
@@ -715,11 +662,9 @@ public:
 
   }
 
-
   bool perturbVertexApproxGradNoImportance(const Vertex& u, StateConPtr& perturbedState) const
   {
     double edgeWeightSum{0.0};
-    unsigned int nAlphas = static_cast<unsigned int>(mAlphaPathWeightsVector.size());
 
     OutEdgeIter ei, ei_end;
     for (boost::tie(ei,ei_end)=out_edges(u,mCurrentRoadmap); ei!=ei_end; ++ei)
@@ -768,7 +713,6 @@ public:
                         mSpace->getDimension(), -1.0);
         double newLogProb{-std::log(1.0 - mBeliefModel->estimate(per_query))};
         double new_meas = mCurrentRoadmap[*ei].collMeasure + newLogProb - vertLogProb;
-  
         newEdgeWtSum += new_length + new_meas;
 
         double new_length2{mSpace->distance(oneDimPerturbed2->state, mCurrentRoadmap[v].v_state->state)};
@@ -777,11 +721,11 @@ public:
         double newLogProb2{-std::log(1.0 - mBeliefModel->estimate(per_query2))};
         double new_meas2 = mCurrentRoadmap[*ei].collMeasure + newLogProb2 - vertLogProb;
 
-        newEdgeWtSum2 += new_length + new_meas;
+        newEdgeWtSum2 += new_length2 + new_meas2;
 
       }
 
-      grads[d] = (newEdgeWtSum - newEdgeWtSum2) / GRAD_EPSILON;
+      grads[d] = (newEdgeWtSum - newEdgeWtSum2) / (2.0*GRAD_EPSILON);
 
       if(newEdgeWtSum < edgeWeightSum || newEdgeWtSum2 < edgeWeightSum){
         localMin = false;
@@ -793,10 +737,14 @@ public:
       return false;
     }
 
-    grads.stableNormalize();
-    if(isnan(grads[0]) || isnan(grads[1])){
+    grads.normalize();
+    if(std::isnan(grads[0]) || std::isnan(grads[1])){
       return false;
     }
+
+    //std::cout<<"For vertex of no importance - grads : "<<grads<<std::endl;
+
+    //throw ompl::Exception("NONIMP STOP!");
 
     double stepSize{mPerturbSize};
     StateConPtr perturbedStateCopy(std::make_shared<StateCon>(mSpace));
@@ -826,313 +774,15 @@ public:
     return false;
   }
 
-
-  // double implementPerturbation(Vertex& u, const StateConPtr& _perturbedState)
-  // {
-  //   cspacebelief::BeliefPoint query(_perturbedState->state, 
-  //                       mSpace->getDimension(), -1.0);
-  //   if(mBeliefModel->estimate(query) > mProbThreshold) {
-  //     return 0.0;
-  //   }
-  //   // Use this as a proxy for new vertex
-  //   Vertex tempNewVertex{boost::add_vertex(mCurrentRoadmap)};
-    
-  //   //mCurrentRoadmap[tempNewVertex].v_state = _perturbedState;
-  //   mCurrentRoadmap[tempNewVertex].v_state = std::make_shared<StateCon>(mSpace);
-  //   mSpace->copyState(mCurrentRoadmap[tempNewVertex].v_state->state, _perturbedState->state);
-
-  //   // To recompute old info
-  //   std::map<Vertex,std::pair<double,double>> newNbrVertexWeights;
-
-  //   // First iterate through current edges and make inf cost those that are invalidated
-  //   OutEdgeIter ei, ei_end;
-  //   for (boost::tie(ei,ei_end)=out_edges(u,mCurrentRoadmap); ei!=ei_end; ++ei) {
-
-  //     double edgeDist{mPlanner.vertexDistFun(boost::target(*ei,mCurrentRoadmap), tempNewVertex)};
-
-      
-
-  //     // Edge invalid in temp new graph
-  //     if(edgeDist > mBatchParams.second) { 
-  //       newNbrVertexWeights.insert(std::make_pair(boost::target(*ei,mCurrentRoadmap),
-  //         std::make_pair(std::numeric_limits<double>::infinity(),std::numeric_limits<double>::infinity())));
-  //     }
-  //     else {
-  //       // Store modified weights
-  //       newNbrVertexWeights.insert(std::make_pair(boost::target(*ei,mCurrentRoadmap),
-  //         std::make_pair(edgeDist, mPlanner.computeEdgeCollisionMeasureNoStates(
-  //           boost::target(*ei,mCurrentRoadmap) , tempNewVertex))));
-  //     }
-  //   }
-
-  //   std::vector<Vertex> tempVertexNbrs;
-  //   mCurrVertexNN.nearestR(tempNewVertex,mBatchParams.second,tempVertexNbrs);
-
-  //   double min_M_tc{std::numeric_limits<double>::infinity()};
-  //   double min_M_tg{std::numeric_limits<double>::infinity()};
-  //   double min_L_tc{std::numeric_limits<double>::infinity()};
-  //   double min_L_tg{std::numeric_limits<double>::infinity()};
-  //   Vertex M_pred,M_succ,L_pred,L_succ;
-
-  //   for(Vertex tvnbr : tempVertexNbrs) {
-
-  //     std::pair<double,double> weights{std::make_pair(mPlanner.vertexDistFun(tempNewVertex,tvnbr), 
-  //           mPlanner.computeEdgeCollisionMeasureNoStates(tempNewVertex,tvnbr))};
-
-  //     if(tvnbr != u && !boost::edge(u,tvnbr,mCurrentRoadmap).second) {
-  //       newNbrVertexWeights.insert(std::make_pair(tvnbr,weights));
-  //     }
-
-  //     //Either way, update the M_tc,M_tg  OF NEW VERTEX etc
-  //     if(L_to_come[tvnbr] + weights.first < min_L_tc) {
-  //       min_L_tc = L_to_come[tvnbr] + weights.first;
-  //       L_pred = tvnbr;
-  //     }
-  //     if(L_to_go[tvnbr] + weights.first < min_L_tg) {
-  //       min_L_tg = L_to_go[tvnbr] + weights.first;
-  //       L_succ = tvnbr;
-  //     }
-  //     if(M_to_come[tvnbr] + weights.second < min_M_tc) {
-  //       min_M_tc = M_to_come[tvnbr] + weights.second;
-  //       M_pred = tvnbr;
-  //     }
-  //     if(M_to_go[tvnbr] + weights.second < min_M_tg) {
-  //       min_M_tg = M_to_go[tvnbr] + weights.second;
-  //       M_succ = tvnbr;
-  //     }
-  //   }
-
-  //   typedef std::tuple<double,Vertex,double,Vertex,double,Vertex,double,Vertex> vertexInfoTuple;
-
-  //   //TODO : Just store the new indices for alphaMin etc. and then update in place at end?
-
-  //   std::vector<double> tempAlphaVector(alphaMinVector);
-  //   std::vector<unsigned int> tempAlphaIdxVector(alphaMinIdxVector);
-  //   std::vector<double> tempSecondAlphaVector(alphaSecondMinVector);
-  //   std::map<Vertex, double> tempVertexImportanceMap;
-  //   std::map<Vertex, vertexInfoTuple> tempVertexInfoMap;
-
-  //   // Only vertices below can affect the score
-  //   for(auto nvNbrWts : newNbrVertexWeights) {
-  //     // For each tvnbr, recompute best M_tg, M_tc etc.
-  //     // IF either is better than their current, put in map
-  //     Vertex nvnbr{nvNbrWts.first};
-  //     std::pair<double,double> weights{nvNbrWts.second};
-
-  //     double v_Min_L_tc{std::numeric_limits<double>::infinity()};
-  //     double v_Min_M_tc{std::numeric_limits<double>::infinity()};
-  //     double v_Min_L_tg{std::numeric_limits<double>::infinity()};
-  //     double v_Min_M_tg{std::numeric_limits<double>::infinity()};
-  //     Vertex v_L_pred, v_M_pred, v_L_succ, v_M_succ;
-
-  //     // If its predecessor OR successor is currently u, reselect best
-  //     // ELSE just compare with current
-  //     if(L_preds[nvnbr] == u || M_preds[nvnbr] == u
-  //        || L_succs[nvnbr] == u || L_preds[nvnbr]==u) {
-
-  //       OutEdgeIter ei, ei_end;
-
-  //       for(boost::tie(ei,ei_end)=out_edges(nvnbr,mCurrentRoadmap); ei != ei_end; ++ei) {
-
-  //         Vertex candidate{boost::target(*ei,mCurrentRoadmap)};
-  //         double length, meas;
-  //         double ltc,mtc,ltg,mtg;
-
-  //         if(candidate == u) {
-  //           // Re-assign weights to temporary
-  //           length = weights.first;
-  //           meas = weights.second;
-  //           ltc = min_L_tc;
-  //           mtc = min_M_tc;
-  //           ltg = min_L_tg;
-  //           mtg = min_M_tg;
-  //         }
-  //         else{
-  //           length = mCurrentRoadmap[*ei].distance;
-  //           meas = mCurrentRoadmap[*ei].collMeasure;
-  //           ltc = L_to_come[candidate];
-  //           mtc = M_to_come[candidate];
-  //           ltg = L_to_go[candidate];
-  //           mtg = M_to_go[candidate];
-  //         }
-
-  //         // Update to-go/to-come temporarily
-  //         if(ltc + length < v_Min_L_tc){
-  //           v_Min_L_tc = ltc + length;
-  //           v_L_pred = candidate;
-  //         }
-  //         if(mtc + meas < v_Min_M_tc){
-  //           v_Min_M_tc = mtc + meas;
-  //           v_M_pred = candidate;
-  //         }
-  //         if(ltg + length < v_Min_L_tg){
-  //           v_Min_L_tg = ltg + length;
-  //           v_L_succ = candidate;
-  //         }
-  //         if(mtg + meas < v_Min_M_tg){
-  //           v_Min_M_tg = mtg + meas;
-  //           v_M_succ = candidate;
-  //         }
-  //       }
-  //     }
-  //     else{
-  //       //Just update to tempNewVertex if it can be reached more easily
-  //       if(min_L_tc + weights.first < L_to_come[nvnbr]) {
-  //         v_Min_L_tc = min_L_tc + weights.first;
-  //         v_L_pred = u;
-  //       }
-  //       if(min_M_tc + weights.second < M_to_come[nvnbr]) {
-  //         v_Min_M_tc = min_M_tc + weights.second;
-  //         v_M_pred = u;
-  //       }
-  //       if(min_L_tg + weights.first < L_to_go[nvnbr]) {
-  //         v_Min_L_tg = min_L_tg + weights.first;
-  //         v_L_succ = u;
-  //       }
-  //       if(min_M_tg + weights.second < M_to_go[nvnbr]) {
-  //         v_Min_M_tg = min_M_tg + weights.second;
-  //         v_M_succ = u;
-  //       }
-  //     }
-
-
-  //     // Now test if nvnbr's M/L has changed
-  //     // And if so, put in map and compute effect on score
-  //     if(v_Min_L_tc + v_Min_L_tg < L_to_come[nvnbr] + L_to_go[nvnbr]
-  //       || v_Min_M_tc + v_Min_M_tg < M_to_come[nvnbr] + M_to_go[nvnbr])
-  //     {
-
-  //       vertexInfoTuple nvnbr_tuple = 
-  //         std::make_tuple(v_Min_L_tc, v_L_pred, v_Min_M_tc, v_M_pred,
-  //                         v_Min_L_tg, v_L_succ, v_Min_M_tg, v_M_succ);
-  //       tempVertexInfoMap.insert(std::make_pair(nvnbr, nvnbr_tuple));
-  //       tempVertexImportanceMap.insert(std::make_pair(nvnbr, mVertexImportance[nvnbr]));
-  //     }
-  //   }
-
-
-  //   // Now run through alphas and update score and importance for 
-  //   unsigned int nAlphas = static_cast<unsigned int>(alphaMinVector.size());
-
-  //   for(unsigned int i = 0u; i < nAlphas; i++) {
-
-  //     double currAlpha{static_cast<double>(i)/(nAlphas-1)};
-
-  //     for(auto tvinfo : tempVertexInfoMap) {
-
-  //       double ltc,mtc,ltg,mtg;
-  //       Vertex lpred,mpred,lsucc,msucc;
-  //       std::tie(ltc,lpred,mtc,mpred,ltg,lsucc,mtg,msucc) = tvinfo.second;
-
-  //       double alphaScore{currAlpha*(ltc+ltg) + (1.0 - currAlpha)*(mtc+mtg)};
-
-  //       // Subtract importance if it gets worse
-        
-  //       if( alphaScore < alphaMinVector[i]) {
-  //         tempAlphaVector[i] = alphaScore;
-  //         tempAlphaIdxVector[i] = tvinfo.first;
-  //         tempVertexImportanceMap[tvinfo.first] += alphaMinVector[i] - alphaScore;
-  //       }
-  //       else if (alphaScore < alphaSecondMinVector[i]) {
-  //         tempSecondAlphaVector[i] = alphaScore;
-  //       }
-  //     }
-  //   }
-
-  //   double newRoadmapScore{getScoreFromAlphaVector(mAlphaPathWeightsVector)};
-  //   double improvement{0.0};
-
-  //   // Check if roadmap score improves
-  //   if(mCurrRoadmapScore - newRoadmapScore > 0.00001) {
-
-  //     mSuccPerturbations++;
-  //     improvement = mCurrRoadmapScore - newRoadmapScore;
-  //     mCurrRoadmapScore = newRoadmapScore;
-
-  //     // Change state of vertex and other values
-  //     mSpace->copyState(mCurrentRoadmap[u].v_state->state, _perturbedState->state);
-
-  //     L_to_come[u] = min_L_tc;
-  //     M_to_come[u] = min_M_tc;
-  //     L_to_go[u] = min_L_tg;
-  //     M_to_go[u] = min_M_tg;
-  //     L_preds[u] = L_pred;
-  //     M_preds[u] = M_pred;
-  //     L_succs[u] = L_succ;
-  //     M_succs[u] = M_succ;
-
-
-  //     // Update edges
-  //     for (auto nbr_wts : newNbrVertexWeights)
-  //     {
-  //       Vertex nbr{nbr_wts.first};
-  //       std::pair<double,double> weights{nbr_wts.second};
-
-  //       // If Edge exists, either update or leave it if weight inf
-  //       std::pair<Edge,bool> potential_edge = boost::edge(u,nbr,mCurrentRoadmap);
-
-  //       if(potential_edge.second) {
-  //         mCurrentRoadmap[potential_edge.first].distance = weights.first;
-  //         mCurrentRoadmap[potential_edge.first].collMeasure = weights.second;
-
-  //         if(weights.first == std::numeric_limits<double>::infinity()) {
-  //           mInfiniteCostEdges.insert(potential_edge.first);
-  //         }
-  //       }
-  //       else{
-  //         std::pair<Edge,bool> new_edge = boost::add_edge(u,nbr,mCurrentRoadmap);
-  //         mCurrentRoadmap[new_edge.first].distance = weights.first;
-  //         mCurrentRoadmap[new_edge.first].collMeasure = weights.second;
-  //         mCurrentRoadmap[new_edge.first].blockedStatus = UNKNOWN;
-  //         mCurrentRoadmap[new_edge.first].hasPoints = false;
-  //       }
-  //     }
-
-
-  //     // Update other vertices
-  //     for(auto tvinfo : tempVertexInfoMap)
-  //     {
-  //       double ltc,mtc,ltg,mtg;
-  //       Vertex lpred,mpred,lsucc,msucc;
-  //       std::tie(ltc,lpred,mtc,mpred,ltg,lsucc,mtg,msucc) = tvinfo.second;
-
-  //       L_to_come[tvinfo.first] = ltc;
-  //       M_to_come[tvinfo.first] = mtc;
-  //       L_to_go[tvinfo.first] = ltg;
-  //       M_to_go[tvinfo.first] = mtg;
-  //       L_preds[tvinfo.first] = lpred;
-  //       M_preds[tvinfo.first] = mpred;
-  //       L_succs[tvinfo.first] = lsucc;
-  //       M_succs[tvinfo.first] = msucc;
-
-  //       mVertexImportance[tvinfo.first] = tempVertexImportanceMap[tvinfo.first];
-  //     }
-
-
-  //     // Update alpha min vector and second min vector
-  //     alphaMinVector = tempAlphaVector;
-  //     alphaMinIdxVector = tempAlphaIdxVector;
-  //     alphaSecondMinVector = tempSecondAlphaVector;
-  //   }
-    
-  //   // Either way, remove new vertex
-  //   boost::remove_vertex(tempNewVertex, mCurrentRoadmap);
-
-  //   // Return numerical value of improvement
-  //   return improvement;
-
-  // }
-
-
   double implementPerturbation(Vertex& u, const StateConPtr& _perturbedState)
   {
     // TODO - Put back threshold check? No, do it in approx grad
-    ompl::base::ScopedState<ompl::base::RealVectorStateSpace>
-      old_state(mSpace, mCurrentRoadmap[u].v_state->state);
-    std::cout<<"Old state - "<<old_state<<std::endl;
-    ompl::base::ScopedState<ompl::base::RealVectorStateSpace>
-      new_state(mSpace, _perturbedState->state);
-    std::cout<<"New state - "<<new_state<<std::endl;
+    // ompl::base::ScopedState<ompl::base::RealVectorStateSpace>
+    //   old_state(mSpace, mCurrentRoadmap[u].v_state->state);
+    // std::cout<<"Old state - "<<old_state<<std::endl;
+    // ompl::base::ScopedState<ompl::base::RealVectorStateSpace>
+    //   new_state(mSpace, _perturbedState->state);
+    // std::cout<<"New state - "<<new_state<<std::endl;
 
 
     // First store old state 
@@ -1144,8 +794,6 @@ public:
     mSpace->copyState(mCurrentRoadmap[u].v_state->state, _perturbedState->state);
 
     std::set<Edge> oldEdgesToRemove;
-
-    std::cout<<"Changed edges in perturbation : "<<std::endl;
 
     OutEdgeIter ei, ei_end;
     for (boost::tie(ei,ei_end)=out_edges(u,mCurrentRoadmap); ei!=ei_end; ++ei)
@@ -1166,7 +814,6 @@ public:
       else{
         mCurrentRoadmap[*ei].distance = edgeDist;
         mCurrentRoadmap[*ei].collMeasure = mPlanner.computeEdgeCollisionMeasureNoStates(u,nbr);
-        std::cout<<*ei<<" : "<<edgeDist<<" , "<<mCurrentRoadmap[*ei].collMeasure<<std::endl;
       }
     }
 
@@ -1191,136 +838,31 @@ public:
       }
     }
 
-    unsigned int nAlphas = static_cast<unsigned int>(mAlphaPathWeightsVector.size());
-
-    // Search stuff
-    std::function<double(const Vertex& u, const Vertex& v)> vertDistFn = 
-      std::bind(&SGDBasedResampler::vertexDistFun,this,std::placeholders::_1,std::placeholders::_2);
 
     // Bookkeeping stuff
-    std::vector<std::pair<double,double>> tempAlphaPathWtsVector(nAlphas);
     std::vector<double> tempVertexImportance(mNumCurrVertices,0.0);
-    std::map<Vertex,std::set<unsigned int>> tempVertexToAlphasMap;
+    std::map<Vertex,std::set<std::pair<double,double>>> tempVertexToAlphaRangeMap;
 
+    double newRoadmapScore{getParetoConvexHullScore(tempVertexImportance,tempVertexToAlphaRangeMap)};
 
-    for(unsigned int i = 0u; i < nAlphas; i++) {
-
-      double currAlpha{static_cast<double>(i)/(nAlphas-1)};
-
-      std::unique_ptr<boost::astar_heuristic<Graph, double>> heuristicFn;
-      
-      // First run search to goal vertex
-      if(i == 0u){
-        heuristicFn.reset(new zero_heuristic<Graph,double>());
-      }
-      else {
-        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(currAlpha,mGoalVertex,vertDistFn));
-      }
-
-      std::map<Vertex,Vertex> startPreds;
-      std::map<Vertex,double> startDist;
-      std::map<Vertex,double> startFValue;
-      std::map<Vertex,boost::default_color_type> colorMap;
-
-      try
-      {
-        boost::astar_search(
-          mCurrentRoadmap,
-          mStartVertex,
-          *heuristicFn,
-          throw_visitor_general(mGoalVertex),
-          boost::make_assoc_property_map(startPreds),
-          boost::make_assoc_property_map(startFValue),
-          boost::make_assoc_property_map(startDist),
-          EdgeSearchWeightMap(mCurrentRoadmap,currAlpha),
-          boost::get(boost::vertex_index, mCurrentRoadmap),
-          boost::make_assoc_property_map(colorMap),
-          std::less<double>(),
-          boost::closed_plus<double>(std::numeric_limits<double>::max()),
-          std::numeric_limits<double>::max(),
-          double()
-        );
-      }
-      catch (const throw_visitor_exception & ex)
-      {
-      }
-
-      // No paths - just exit
-      if(startDist[mGoalVertex] == std::numeric_limits<double>::max()) {
-        return -1.0;
-      }
-
-      // Now combine path data to get what you need
-      double pathScore{startDist[mGoalVertex]};
-      double pathLength{0.0};
-      double pathMeasure{0.0};
-
-      // Simply recompute all importances
-      // and accept if better
-      Vertex vWalk{mGoalVertex};
-      tempVertexImportance[mGoalVertex] += 1.0/pathScore;
-      if(tempVertexToAlphasMap.find(mGoalVertex) != tempVertexToAlphasMap.end()){
-        tempVertexToAlphasMap[mGoalVertex].insert(i);
-      }
-      else{
-        tempVertexToAlphasMap.insert(std::make_pair(mGoalVertex,std::set<unsigned int>()));
-        tempVertexToAlphasMap[mGoalVertex].insert(i);
-      }
-
-      std::cout<<currAlpha<<" ";
-      while(vWalk != mStartVertex)
-      {
-        Vertex vPred{startPreds[vWalk]};
-        std::pair<Edge, bool> edgePair{boost::edge(vPred, vWalk, mCurrentRoadmap)};
-        if(!edgePair.second) {
-          throw ompl::Exception("Error! Edge present during search no longer exists in graph!");
-        }
-        std::cout<<vPred<<" ";
-        tempVertexImportance[vPred] += 1.0/pathScore;
-        pathLength += mCurrentRoadmap[edgePair.first].distance;
-        pathMeasure += mCurrentRoadmap[edgePair.first].collMeasure;
-
-        auto search = tempVertexToAlphasMap.find(vPred);
-        if(search != tempVertexToAlphasMap.end()){
-          search->second.insert(i);
-        }
-        else{
-          tempVertexToAlphasMap.insert(std::make_pair(vPred,std::set<unsigned int>()));
-          tempVertexToAlphasMap[vPred].insert(i);
-        }
-        vWalk = vPred;
-      }
-
-      std::cout<<"Weights : "<<pathLength<<" ; "<<pathMeasure<<std::endl;
-
-      tempAlphaPathWtsVector[i] = std::make_pair(pathLength,pathMeasure);
-    }
-
-    double newRoadmapScore{getScoreFromAlphaVector(tempAlphaPathWtsVector)};
-    //std::cout<<"New roadmap score - "<<newRoadmapScore<<std::endl;
     double improvement{0.0};
 
-    if(mVertexImportance[u] > 0.0){
-      std::cout<<"For vertex "<<u<<" of importance "<<mVertexImportance[u]<<", the improvement is "
-      <<(mCurrRoadmapScore-newRoadmapScore)<<std::endl;
-      //throw ompl::Exception("STOP!");
-    }
-    
+    // if(mVertexImportance[u] > 0.0){
+    //   std::cout<<"For vertex "<<u<<" of importance "<<mVertexImportance[u]<<", the improvement is "
+    //   <<(mCurrRoadmapScore-newRoadmapScore)<<std::endl;
+    //   //throw ompl::Exception("STOP!");
+    // }
+      
     // Now compare with previous and accept if improved
     if(mCurrRoadmapScore >= newRoadmapScore)
     {
       improvement = mCurrRoadmapScore - newRoadmapScore;
-
-      //if(improvement > std::numeric_limits<double>::epsilon()){
-        mSuccPerturbations++;
-       
-        // And copy weight vectors and maps
-        mCurrRoadmapScore = newRoadmapScore;
-        mAlphaPathWeightsVector = tempAlphaPathWtsVector;
-        mVertexImportance = tempVertexImportance;
-        mVertexToAlphasMap = tempVertexToAlphasMap;
-      //}
-
+      mSuccPerturbations++;
+      // And copy weight vectors and maps
+      mCurrRoadmapScore = newRoadmapScore;
+      mVertexImportance = tempVertexImportance;
+      mVertexToAlphaRangeMap = tempVertexToAlphaRangeMap;
+      
       // Either way implement change
       // Which is just to remove oldEdgesToRemove
       for(Edge e : oldEdgesToRemove){
@@ -1419,7 +961,7 @@ public:
     }
 
     // Compute initial score
-    computeInitialScore();
+    mCurrRoadmapScore = getParetoConvexHullScore(mVertexImportance, mVertexToAlphaRangeMap);
     std::cout<<"Current Score - "<<mCurrRoadmapScore<<std::endl;
 
     for(unsigned int i=0; i < mNumPerturbations; i++)
@@ -1431,24 +973,23 @@ public:
       if(mVertexImportance[chosenVert] > 0.0){
         if(perturbVertexApproxGradImportance(chosenVert,perturbedState)){
           double improvement = implementPerturbation(chosenVert, perturbedState);
-          if(improvement > std::numeric_limits<double>::epsilon()){
-            std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" improved score by "<<improvement<<std::endl;
-          }
+          // if(improvement > std::numeric_limits<double>::epsilon()){
+          //   std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" improved score by "<<improvement<<std::endl;
+          // }
         }
       }
       else{
-        continue;
         if(perturbVertexApproxGradNoImportance(chosenVert,perturbedState)){
           double improvement = implementPerturbation(chosenVert, perturbedState);
-          if(improvement > std::numeric_limits<double>::epsilon()){
-            std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" of no importance improved score by "<<improvement<<std::endl;
-          }
+          // if(improvement > std::numeric_limits<double>::epsilon()){
+          //   std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" of no importance improved score by "<<improvement<<std::endl;
+          // }
         }
       }
     }
 
     std::cout<<"Final score - "<<mCurrRoadmapScore<<std::endl;
-    std::cout<<mSuccPerturbations<<" successful perturbations"<<std::endl;  
+    //std::cout<<mSuccPerturbations<<" successful perturbations"<<std::endl;  
   }
 
 
@@ -1480,8 +1021,7 @@ private:
 
   // For tracking additional info for vertices
   std::vector<double> mVertexImportance;
-  std::vector<std::pair<double,double>> mAlphaPathWeightsVector;
-  std::map<Vertex,std::set<unsigned int>> mVertexToAlphasMap;
+  std::map<Vertex,std::set<std::pair<double,double>>> mVertexToAlphaRangeMap;
 
 
   double mCurrRoadmapScore;
