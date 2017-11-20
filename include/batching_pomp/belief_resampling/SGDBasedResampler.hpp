@@ -109,7 +109,8 @@ public:
   SGDBasedResampler(BatchingPOMP& _planner,
                     unsigned int _numPerturbations,
                     double _perturbSize,
-                    double _probThreshold = 1.0)
+                    double _probThreshold = 1.0,
+                    double _randomOffsetSize=0.0)
   : BeliefInformedResampler(_planner)
   , mFullRoadmap(*(_planner.full_g))
   , mCurrVertexNN(*(_planner.mVertexNN))
@@ -119,6 +120,7 @@ public:
   , mPerturbSize{_perturbSize}
   , mProbThreshold{_probThreshold}
   , mSuccPerturbations{0u}
+  , mRandomOffsetSize{_randomOffsetSize}
   {
     boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
     std::random_device rd;
@@ -134,15 +136,23 @@ public:
 
     while(numVerticesAdded < mBatchParams.first)
     {
-      cspacebelief::BeliefPoint query(mFullRoadmap[*mCurrVertex].v_state->state, 
+      StateConPtr perturbedState(std::make_shared<StateCon>(mSpace));
+      if(mRandomOffsetSize > 0.0){
+        ompl::base::RealVectorStateSampler rvSampler(mSpace.get());
+        rvSampler.sampleUniformNear(perturbedState->state, mFullRoadmap[*mCurrVertex].v_state->state, mRandomOffsetSize);
+      }
+      else{
+        mSpace->copyState(perturbedState->state,mFullRoadmap[*mCurrVertex].v_state->state);
+      }
+
+      cspacebelief::BeliefPoint query(perturbedState->state, 
                         mSpace->getDimension(), -1.0);
 
-      // TODO - Currently coll check thresholding here; update
-      if(mPlanner.getSpaceInformation()->isValid(mFullRoadmap[*mCurrVertex].v_state->state) &&
+      if(mPlanner.getSpaceInformation()->isValid(perturbedState->state) &&
          mBeliefModel->estimate(query) < mProbThreshold) {
         Vertex newVertex{boost::add_vertex(mCurrentRoadmap)};
 
-        mCurrentRoadmap[newVertex].v_state = mFullRoadmap[*mCurrVertex].v_state;
+        mCurrentRoadmap[newVertex].v_state = perturbedState;
         vertex_vector[numVerticesAdded++] = newVertex;
       }
       ++mCurrVertex;
@@ -178,6 +188,11 @@ public:
         }
       }
     }
+  }
+
+  double getCurrRoadmapScore() const
+  {
+    return mCurrRoadmapScore;
   }
 
   double getParetoConvexHullScore(std::vector<double>& _tempVertexImportance,
@@ -275,8 +290,6 @@ public:
         std::tie(alphaLow,pathLow,weightsLow) = frontierQtop.first;
         std::tie(alphaHigh,pathHigh,weightsHigh) = frontierQtop.second;
 
-        // alpha = atan2(l_alphalow - l_alphaHi)/(m_alphaHi - malphaLow)
-        //double newCurrAlpha = std::atan2(weightsLow.first - weightsHigh.first, weightsHigh.second - weightsLow.second);
         double newCurrAlpha = 
           (weightsHigh.second - weightsLow.second)/(weightsLow.first - weightsHigh.first + weightsHigh.second - weightsLow.second);
 
@@ -288,7 +301,7 @@ public:
         std::map<Vertex,boost::default_color_type> colorMap;
 
         std::unique_ptr<boost::astar_heuristic<Graph, double>> heuristicFn;
-        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(1.0,mGoalVertex,vertDistFn));
+        heuristicFn.reset(new exp_distance_heuristic<Graph,double>(newCurrAlpha,mGoalVertex,vertDistFn));
 
         try
         {
@@ -985,6 +998,7 @@ private:
   // Testing - step size of perturbation
   double mPerturbSize;
   unsigned int mNumPerturbations;
+  double mRandomOffsetSize;
 
   // DEBUGGING
   unsigned int mSuccPerturbations;
