@@ -384,7 +384,7 @@ public:
 
       roadmapScore += pathContrib;
 
-      //std::cout<<"Pathcontrib "<<pathContrib<<" from "<<currAlpha<<" to "<<nextAlpha<<" ; path - ";
+      //std::cout<<"Pathcontrib "<<pathContrib<<" from "<<currAlpha<<" to "<<nextAlpha<<std::endl;
 
       for(Vertex pv : currAlphaPathVertices)
       {
@@ -959,7 +959,7 @@ public:
   {
     // First add initial samples
     addInitialBatch();
-
+    std::cout<<"Initial Batch added"<<std::endl;
     // Compute initial score
     mCurrRoadmapScore = getParetoConvexHullScore(mVertexImportance, mVertexToAlphaRangeMap);
     std::cout<<"Current Score - "<<mCurrRoadmapScore<<std::endl;
