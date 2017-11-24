@@ -170,6 +170,8 @@ public:
 
     mVertexImportance.resize(mNumCurrVertices,0.0);
 
+    mVertexChosenFrequency.resize(mNumCurrVertices,1u);
+
     // Define edges based on mutual distance and compute edge weights
     VertexIter vi, vi_end;
     for(boost::tie(vi,vi_end)=vertices(mCurrentRoadmap); vi != vi_end; ++vi) {
@@ -916,7 +918,7 @@ public:
 
     for(unsigned int i=2u ; i < mNumCurrVertices; i++)
     {
-      impScoreSum += mVertexImportance[i];
+      impScoreSum += (mVertexImportance[i]/mVertexChosenFrequency[i]);
     }
 
     // TODO - Sign here determines softmax or softmin
@@ -924,7 +926,7 @@ public:
     for(unsigned int i=2u ; i < mNumCurrVertices; i++)
     {
       // Prefer higher importance
-      softmaxScores[i-2] = std::exp(mVertexImportance[i]/impScoreSum);
+      softmaxScores[i-2] = std::exp(mVertexImportance[i]/(impScoreSum*mVertexChosenFrequency[i]));
       softmaxScoreSum += softmaxScores[i-2];
     }
 
@@ -968,6 +970,9 @@ public:
     {
       // Choose a sample based on its importance
       Vertex chosenVert{softMaxVertexSelection()};
+
+      mVertexChosenFrequency[chosenVert] ++;
+      
       StateConPtr perturbedState(std::make_shared<StateCon>(mSpace));
 
       if(mVertexImportance[chosenVert] > 0.0){
@@ -1021,6 +1026,7 @@ private:
   // For tracking additional info for vertices
   std::vector<double> mVertexImportance;
   std::map<Vertex,std::set<std::pair<double,double>>> mVertexToAlphaRangeMap;
+  std::vector<unsigned int> mVertexChosenFrequency;
 
 
   double mCurrRoadmapScore;
