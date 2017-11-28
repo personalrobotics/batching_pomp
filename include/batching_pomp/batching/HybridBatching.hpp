@@ -76,6 +76,7 @@ public:
   , mEdgeBatchingMode{false}
   , mRadiusFn{_initRadiusFn}
   {
+    BatchingManager::mBatchingType = "hybrid";
     BatchingManager::mCurrRadius = mInitRadius;
     boost::tie(mCurrVertex,mLastVertex) = vertices(BatchingManager::mFullRoadmap);
   }

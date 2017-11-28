@@ -63,6 +63,7 @@ public:
   , mInitRadius{_initRadiusFn(BatchingManager::mNumVertices)}
   , mMaxRadius{_maxRadius}
   {
+    BatchingManager::mBatchingType = "edge";
   }
 
   //////////////////////////////////////////////////

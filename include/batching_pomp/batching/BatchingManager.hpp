@@ -157,7 +157,6 @@ public:
   virtual void nextBatch(const std::function<bool(const ompl::base::State*)>& _pruneFunction,
                          ompl::NearestNeighbors<Vertex>& _vertexNN) = 0;
 
-
 protected:
 
 

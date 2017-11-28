@@ -59,6 +59,7 @@ public:
   , mNextVertexTarget{_initNumVertices}
   , mVertInflFactor{_vertInflFactor}
   {
+    BatchingManager::mBatchingType = "vertex";
     BatchingManager::mCurrRadius = std::numeric_limits<double>::max();
     boost::tie(mCurrVertex,mLastVertex) = vertices(BatchingManager::mFullRoadmap);
   }
