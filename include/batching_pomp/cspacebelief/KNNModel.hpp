@@ -55,12 +55,14 @@ public:
   /// \param[in] _distanceFunction The ompl::NearestNeighbours::Distance Function to set 
   KNNModel(size_t _KNN,
            double _prior, double _priorWeight,
-           const std::function<double(const BeliefPoint&, const BeliefPoint&)>& _distanceFunction)
+           const std::function<double(const BeliefPoint&, const BeliefPoint&)>& _distanceFunction,
+           double _supportRadius=std::numeric_limits<double>::infinity())
   : mNumPoints{0}
   , mKNN{_KNN}
   , mPrior{_prior}
   , mPriorWeight{_priorWeight}
   , mDistanceFunction{_distanceFunction}
+  , mSupportRadius{_supportRadius}
   {
     mBeliefPointNN.reset(new ompl::NearestNeighborsGNAT<BeliefPoint>());
     mBeliefPointNN->setDistanceFunction(mDistanceFunction);
@@ -114,21 +116,23 @@ public:
       throw std::runtime_error("Model could not return the expected number of neighbours");
     }
 
-    Eigen::VectorXd weights(knn);
-    Eigen::VectorXd values(knn);
+    std::vector<double> wts;
+    std::vector<double> vals;
 
     for(size_t i = 0; i < knn; i++) {
       double distance = std::max(0.0001,mDistanceFunction(query, neighboursVect[i]));
-      weights[i] = 1.0/distance;
-      values[i] = neighboursVect[i].getValue(); // Second element of pair is value
+      if(distance < mSupportRadius) {
+        wts.push_back(1.0/distance);
+        vals.push_back(neighboursVect[i].getValue()); // Second element of pair is value
+      }
     }
     double result{mPrior};
-
-    result = weights.dot(values) / weights.sum();
-
-    // Do (result + pw*p) / (1 + pw) for smoothing by prior
-    result = (result + mPriorWeight*mPrior) / (1 + mPriorWeight);
-    
+    if(wts.size() > 0) {
+      Eigen::VectorXd weights = Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(wts.data(), wts.size());
+      Eigen::VectorXd values = Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(vals.data(), vals.size());
+      result = weights.dot(values) / weights.sum();
+      result = (result + mPriorWeight*mPrior) / (1 + mPriorWeight);
+    }
 
     return result;
   }
@@ -152,6 +156,8 @@ private:
 
   // The distance metric for the nearest neighbour structure
   std::function<double(const BeliefPoint&, const BeliefPoint&)> mDistanceFunction;
+
+  double mSupportRadius;
 };
 
 } //namespace cspacebelief
