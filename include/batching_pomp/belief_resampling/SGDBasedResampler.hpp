@@ -253,9 +253,8 @@ public:
       catch (const throw_visitor_exception & ex)
       {
       }
-
-      if(startDist[mGoalVertex] == std::numeric_limits<double>::infinity()) {
-        throw ompl::Exception("No candidate path found in roadmap");
+      if(startDist[mGoalVertex] == std::numeric_limits<double>::max()) {
+        throw no_path_found_exception();
       }
 
       std::deque<Vertex> thisAlphaPath;
@@ -814,8 +813,8 @@ public:
 
       if(edgeDist > mBatchParams.second)
       {
-        mCurrentRoadmap[*ei].distance = std::numeric_limits<double>::infinity();
-        mCurrentRoadmap[*ei].collMeasure = std::numeric_limits<double>::infinity();
+        mCurrentRoadmap[*ei].distance = std::numeric_limits<double>::max();
+        mCurrentRoadmap[*ei].collMeasure = std::numeric_limits<double>::max();
         oldEdgesToRemove.insert(*ei);
       }
       else{
@@ -978,17 +977,17 @@ public:
       if(mVertexImportance[chosenVert] > 0.0){
         if(perturbVertexApproxGradImportance(chosenVert,perturbedState)){
           double improvement = implementPerturbation(chosenVert, perturbedState);
-          // if(improvement > std::numeric_limits<double>::epsilon()){
-          //   std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" improved score by "<<improvement<<std::endl;
-          // }
+          //if(improvement > std::numeric_limits<double>::epsilon()){
+            //std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" improved score by "<<improvement<<std::endl;
+          //}
         }
       }
       else{
         if(perturbVertexApproxGradNoImportance(chosenVert,perturbedState)){
           double improvement = implementPerturbation(chosenVert, perturbedState);
-          // if(improvement > std::numeric_limits<double>::epsilon()){
-          //   std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" of no importance improved score by "<<improvement<<std::endl;
-          // }
+          //if(improvement > std::numeric_limits<double>::epsilon()){
+            //std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" of no importance improved score by "<<improvement<<std::endl;
+          //}
         }
       }
     }

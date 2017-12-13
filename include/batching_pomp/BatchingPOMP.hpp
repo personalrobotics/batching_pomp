@@ -143,6 +143,9 @@ public:
   inline double getSearchTime(){ return mSearchTime;}
   /// Total time spent doing collision checks
   inline double getCollCheckTime(){return mCollCheckTime;}
+  
+  inline void resetNumLookups(){mNumLookups = 0u;}
+
 
   // OMPL required methods
   void setProblemDefinition(const ompl::base::ProblemDefinitionPtr & pdef);
