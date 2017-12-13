@@ -57,15 +57,15 @@ void setNumberOfSamples(unsigned int _nSamples)
 	mBatchParams.first = _nSamples;
 }
 
-void setConnectionRadius(double _radius)
+void setConnectionKNN(unsigned int _knn)
 {
-	mBatchParams.second = _radius;
+	mBatchParams.second = _knn;
 }
 
-void setBatchParams(unsigned int _nSamples, double _radius)
+void setBatchParams(unsigned int _nSamples, unsigned int _knn)
 {
 	setNumberOfSamples(_nSamples);
-	setConnectionRadius(_radius);
+	setConnectionKNN(_knn);
 }
 
 virtual void updateRoadmap() = 0;
@@ -85,8 +85,8 @@ protected:
 	/// The underlying roadmap of the planner
 	Graph& mCurrentRoadmap;
 
-	/// Pair of samples and radius
-	std::pair<unsigned int, double> mBatchParams;
+	/// Pair of samples and knn k-value
+	std::pair<unsigned int, unsigned int> mBatchParams;
 
 };
 

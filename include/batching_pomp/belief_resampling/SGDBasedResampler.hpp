@@ -121,6 +121,9 @@ public:
   , mProbThreshold{_probThreshold}
   , mSuccPerturbations{0u}
   , mRandomOffsetSize{_randomOffsetSize}
+  , mParetoScoreTime{0.0}
+  , mPerturbTime{0.0}
+  , mSoftmaxTime{0.0}
   {
     boost::tie(mCurrVertex,mLastVertex) = vertices(mFullRoadmap);
     std::random_device rd;
@@ -130,6 +133,7 @@ public:
   /// Add the next n samples from list subject to thresholding conditions
   void addInitialBatch()
   {
+    std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
     // Iterate and add to current roadmap
     unsigned int numVerticesAdded{0u};
     std::vector<Vertex> vertex_vector(mBatchParams.first);
@@ -176,7 +180,7 @@ public:
     VertexIter vi, vi_end;
     for(boost::tie(vi,vi_end)=vertices(mCurrentRoadmap); vi != vi_end; ++vi) {
       std::vector<Vertex> vertexNbrs;
-      mCurrVertexNN.nearestR(*vi,mBatchParams.second,vertexNbrs);
+      mCurrVertexNN.nearestK(*vi,mBatchParams.second,vertexNbrs);
 
       for(Vertex nbr : vertexNbrs) {
         if(nbr == *vi)
@@ -190,6 +194,10 @@ public:
         }
       }
     }
+
+    std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+    std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+    std::cout<<"Time spent on initial batch - "<<elapsedSeconds.count()<<std::endl;
   }
 
   double getCurrRoadmapScore() const
@@ -391,7 +399,7 @@ public:
       for(Vertex pv : currAlphaPathVertices)
       {
         //std::cout<<pv<<" ";
-        _tempVertexImportance[pv] += 1.0/pathContrib;
+        _tempVertexImportance[pv] += pathContrib;
         auto search = _tempVertexToAlphaRangeMap.find(pv);
         if(search != _tempVertexToAlphaRangeMap.end()){
           search->second.insert( std::make_pair(currAlpha, nextAlpha));
@@ -418,7 +426,7 @@ public:
     for(Vertex pv : lastAlphaPathVertices)
     {
       //std::cout<<pv<<" ";
-      _tempVertexImportance[pv] += 1.0/pathContrib;
+      _tempVertexImportance[pv] += pathContrib;
       auto search = _tempVertexToAlphaRangeMap.find(pv);
       if(search != _tempVertexToAlphaRangeMap.end()){
         search->second.insert( std::make_pair(currAlpha, nextAlpha));
@@ -783,15 +791,6 @@ public:
 
   double implementPerturbation(Vertex& u, const StateConPtr& _perturbedState)
   {
-    // TODO - Put back threshold check? No, do it in approx grad
-    // ompl::base::ScopedState<ompl::base::RealVectorStateSpace>
-    //   old_state(mSpace, mCurrentRoadmap[u].v_state->state);
-    // std::cout<<"Old state - "<<old_state<<std::endl;
-    // ompl::base::ScopedState<ompl::base::RealVectorStateSpace>
-    //   new_state(mSpace, _perturbedState->state);
-    // std::cout<<"New state - "<<new_state<<std::endl;
-
-
     // First store old state 
     StateConPtr oldState = std::make_shared<StateCon>(mSpace);
     mSpace->copyState(oldState->state, mCurrentRoadmap[u].v_state->state);
@@ -799,8 +798,6 @@ public:
     // Now change vertex and recompute lengths and measures
     std::map<Vertex,std::pair<double,double>> oldEdgeMap;
     mSpace->copyState(mCurrentRoadmap[u].v_state->state, _perturbedState->state);
-
-    std::set<Edge> oldEdgesToRemove;
 
     OutEdgeIter ei, ei_end;
     for (boost::tie(ei,ei_end)=out_edges(u,mCurrentRoadmap); ei!=ei_end; ++ei)
@@ -811,24 +808,15 @@ public:
         std::make_pair(mCurrentRoadmap[*ei].distance, mCurrentRoadmap[*ei].collMeasure)));
 
       double edgeDist{vertexDistFun(u,nbr)};
-
-      if(edgeDist > mBatchParams.second)
-      {
-        mCurrentRoadmap[*ei].distance = std::numeric_limits<double>::infinity();
-        mCurrentRoadmap[*ei].collMeasure = std::numeric_limits<double>::infinity();
-        oldEdgesToRemove.insert(*ei);
-      }
-      else{
-        mCurrentRoadmap[*ei].distance = edgeDist;
-        mCurrentRoadmap[*ei].collMeasure = mPlanner.computeEdgeCollisionMeasureNoStates(u,nbr);
-      }
+      mCurrentRoadmap[*ei].distance = edgeDist;
+      mCurrentRoadmap[*ei].collMeasure = mPlanner.computeEdgeCollisionMeasureNoStates(u,nbr);
     }
 
     // Now add potential new nbrs with their weights
     // TODO - Check that this actually returns new neighbours!
     std::set<Edge> newEdgesToRemove;
     std::vector<Vertex> tempVertexNbrs;
-    mCurrVertexNN.nearestR(u,mBatchParams.second,tempVertexNbrs);
+    mCurrVertexNN.nearestK(u,mBatchParams.second,tempVertexNbrs);
 
     for(Vertex tvnbr : tempVertexNbrs) {
 
@@ -850,7 +838,12 @@ public:
     std::vector<double> tempVertexImportance(mNumCurrVertices,0.0);
     std::map<Vertex,std::set<std::pair<double,double>>> tempVertexToAlphaRangeMap;
 
+    // Measure time spent on score compute
+    std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
     double newRoadmapScore{getParetoConvexHullScore(tempVertexImportance,tempVertexToAlphaRangeMap)};
+    std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+    std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+    mParetoScoreTime += elapsedSeconds.count();
 
     double improvement{0.0};
 
@@ -869,12 +862,6 @@ public:
       mCurrRoadmapScore = newRoadmapScore;
       mVertexImportance = tempVertexImportance;
       mVertexToAlphaRangeMap = tempVertexToAlphaRangeMap;
-      
-      // Either way implement change
-      // Which is just to remove oldEdgesToRemove
-      for(Edge e : oldEdgesToRemove){
-        boost::remove_edge(e,mCurrentRoadmap);
-      }
     }
     else
     {
@@ -918,7 +905,7 @@ public:
 
     for(unsigned int i=2u ; i < mNumCurrVertices; i++)
     {
-      impScoreSum += (mVertexImportance[i]/mVertexChosenFrequency[i]);
+      impScoreSum += (mVertexImportance[i]/(mCurrRoadmapScore*mVertexChosenFrequency[i]));
     }
 
     // TODO - Sign here determines softmax or softmin
@@ -926,7 +913,7 @@ public:
     for(unsigned int i=2u ; i < mNumCurrVertices; i++)
     {
       // Prefer higher importance
-      softmaxScores[i-2] = std::exp(mVertexImportance[i]/(impScoreSum*mVertexChosenFrequency[i]));
+      softmaxScores[i-2] = std::exp(mVertexImportance[i]/(impScoreSum*mCurrRoadmapScore*mVertexChosenFrequency[i]));
       softmaxScoreSum += softmaxScores[i-2];
     }
 
@@ -963,29 +950,56 @@ public:
     addInitialBatch();
     std::cout<<"Initial Batch added"<<std::endl;
     // Compute initial score
-    mCurrRoadmapScore = getParetoConvexHullScore(mVertexImportance, mVertexToAlphaRangeMap);
+    computeInitialScore();
     std::cout<<"Current Score - "<<mCurrRoadmapScore<<std::endl;
+
+
+    double gradTime{0.0};
 
     for(unsigned int i=0; i < mNumPerturbations; i++)
     {
       // Choose a sample based on its importance
+      std::chrono::time_point<std::chrono::system_clock> _startTime{std::chrono::system_clock::now()};
       Vertex chosenVert{softMaxVertexSelection()};
-
+      std::chrono::time_point<std::chrono::system_clock> _endTime{std::chrono::system_clock::now()};
+      std::chrono::duration<double> _elapsedSeconds{_endTime-_startTime};
+      mSoftmaxTime += _elapsedSeconds.count();
+      
       mVertexChosenFrequency[chosenVert] ++;
       
       StateConPtr perturbedState(std::make_shared<StateCon>(mSpace));
 
       if(mVertexImportance[chosenVert] > 0.0){
-        if(perturbVertexApproxGradImportance(chosenVert,perturbedState)){
+        std::chrono::time_point<std::chrono::system_clock> _gstartTime{std::chrono::system_clock::now()};
+        bool gradRes{perturbVertexApproxGradImportance(chosenVert,perturbedState)};
+        std::chrono::time_point<std::chrono::system_clock> _gendTime{std::chrono::system_clock::now()};
+        std::chrono::duration<double> _gelapsedSeconds{_gendTime-_gstartTime};
+        gradTime += _gelapsedSeconds.count();
+
+        if(gradRes){
+          std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
           double improvement = implementPerturbation(chosenVert, perturbedState);
+          std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+          std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+          mPerturbTime += elapsedSeconds.count();
           // if(improvement > std::numeric_limits<double>::epsilon()){
           //   std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" improved score by "<<improvement<<std::endl;
           // }
         }
       }
       else{
-        if(perturbVertexApproxGradNoImportance(chosenVert,perturbedState)){
+        std::chrono::time_point<std::chrono::system_clock> _gstartTime{std::chrono::system_clock::now()};
+        bool gradRes{perturbVertexApproxGradNoImportance(chosenVert,perturbedState)};
+        std::chrono::time_point<std::chrono::system_clock> _gendTime{std::chrono::system_clock::now()};
+        std::chrono::duration<double> _gelapsedSeconds{_gendTime-_gstartTime};
+        gradTime += _gelapsedSeconds.count();
+
+        if(gradRes){
+          std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
           double improvement = implementPerturbation(chosenVert, perturbedState);
+          std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+          std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+          mPerturbTime += elapsedSeconds.count();
           // if(improvement > std::numeric_limits<double>::epsilon()){
           //   std::cout<<"Trial "<<i<<" : Vertex "<<chosenVert<<" of no importance improved score by "<<improvement<<std::endl;
           // }
@@ -993,8 +1007,12 @@ public:
       }
     }
 
+    std::cout<<"Time spent on PCH Score - "<<mParetoScoreTime<<std::endl;
+    std::cout<<"Time spent on perturbation - "<<mPerturbTime<<std::endl;
+    std::cout<<"Time spent on softmax - "<<mSoftmaxTime<<std::endl;
+    std::cout<<"Time spent on grad - "<<gradTime<<std::endl;
     std::cout<<"Final score - "<<mCurrRoadmapScore<<std::endl;
-    //std::cout<<mSuccPerturbations<<" successful perturbations"<<std::endl;  
+    
   }
 
 
@@ -1030,6 +1048,11 @@ private:
 
 
   double mCurrRoadmapScore;
+
+
+  double mParetoScoreTime;
+  double mPerturbTime;
+  double mSoftmaxTime;
 
 
 };
