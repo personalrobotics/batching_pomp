@@ -326,7 +326,6 @@ int main(int argc, char* argv[])
 
   batching_pomp::belief_resampling::SGDBasedResampler resampler(bpPlanner,
                                                                 num_perturbations,
-                                                                dalpha,
                                                                 perturb_size,
                                                                 0.85);
   resampler.setBatchParams(num_samples,radius);
@@ -334,7 +333,6 @@ int main(int argc, char* argv[])
 
   batching_pomp::belief_resampling::SGDBasedResampler resampler2(bpPlanner2,
                                                                 0,
-                                                                dalpha,
                                                                 0.0,
                                                                 0.85);
   resampler2.setBatchParams(num_samples,radius);

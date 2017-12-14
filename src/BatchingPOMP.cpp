@@ -1,4 +1,5 @@
 /***********************************************************************
+
 Copyright (c) 2017, Shushman Choudhury
 All rights reserved.
 Authors: Shushman Choudhury <shushmanchoudhury@gmail.com>
@@ -255,7 +256,7 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
 , mBestPathCost{std::numeric_limits<double>::max()}
 , mUsingSelector{false}
 , mGraphType{""}
-, mBatchingType{""}
+, mBatchingType{_batchingPtr->getBatchingType()}
 , mSelectorType{""}
 , mNumEdgeChecks{0u}
 , mNumCollChecks{0u}
@@ -275,8 +276,6 @@ BatchingPOMP::BatchingPOMP(const ompl::base::SpaceInformationPtr & si,
     });
 
   mVertexNN->setDistanceFunction(distfun);
-
-  mBatchingType = _batchingPtr->getBatchingType();
 
   Planner::setup();
   assignBatchingRoadmap();
@@ -565,8 +564,13 @@ double BatchingPOMP::computeEdgeCollisionMeasureNoStates(const Vertex& u, const 
     mSpace->interpolate(startState, endState,
       1.0*(1+i)/(nStates+1), statePlaceholder->state);
     BeliefPoint query(statePlaceholder->state, mSpace->getDimension(), -1.0);
+    std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
     result += -std::log(1.0 - mBeliefModel->estimate(query));
+    std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+    std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+    mLookupTime += elapsedSeconds.count();
     effCount ++;
+    mNumLookups++;
   }
   return (result/effCount);
 }
@@ -604,7 +608,7 @@ bool BatchingPOMP::checkAndSetEdgeBlocked(const Edge& e)
     std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
     std::chrono::duration<double> elapsedSeconds{endTime-startTime};
     mCollCheckTime += elapsedSeconds.count();
-    
+
     if(checkResult == false) {
 
       BeliefPoint toAdd((*g)[e].edgeStates[i]->state,mSpace->getDimension(),1.0);
@@ -971,6 +975,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
     std::map<Vertex,double> startFValue;
     std::map<Vertex,boost::default_color_type> colorMap;
 
+    std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
     try
     {
       mNumSearches++;
@@ -984,7 +989,7 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
       }
 
       mIsInitSearchBatch = false; // Either way, make it false
-
+      
       // TODO : Assign to a generic visitor object?
       if(mBatchingType == "single") {
         boost::astar_search(
@@ -1023,7 +1028,6 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
         );
       }
       else {
-        std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
         boost::astar_search(
           (*g),
           mStartVertex,
@@ -1040,16 +1044,15 @@ ompl::base::PlannerStatus BatchingPOMP::solve(
           std::numeric_limits<double>::max(),
           double()
         );
-        std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
-        std::chrono::duration<double> elapsedSeconds{endTime-startTime};
-        mSearchTime += elapsedSeconds.count();
       }
       
     }
     catch (const throw_visitor_exception & ex)
     {
+      std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+      std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+      mSearchTime += elapsedSeconds.count();
     }
-    
 
     if(startDist[mGoalVertex] == std::numeric_limits<double>::max()) {
       // Did not find a path this time
