@@ -143,7 +143,7 @@ public:
 
 class throw_visitor_exception : public std::exception {};
 
-
+class no_path_found_exception : public std::exception {};
 
 }	// namespace batching_pomp
 
