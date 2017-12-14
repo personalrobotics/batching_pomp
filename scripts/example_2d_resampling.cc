@@ -31,29 +31,14 @@
 namespace po = boost::program_options;
 using batching_pomp::BatchingPOMP;
 
+const unsigned int SIDE = 800u;
+
 /// Check if the point is a black pixel or not
 /// This is bound to the stateValidityChecker of the ompl StateSpace
 /// \param[in] img The b/w image which represents the 2D map
 /// \param[in] state The ompl state to check for validity
 /// \return True if the pixel corresponding to the state is free, False otherwise
 bool isPointValid(cv::Mat& img, const ompl::base::State * state)
-{
-    double* values = state->as<
-      ompl::base::RealVectorStateSpace::StateType>()->values;
-    int r = img.rows, c = img.cols;
-
-    cv::Point p((int)(values[0]*c),(int)(values[1]*r));
-    
-    //std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    if(img.at<uchar>(p.y,p.x)==0) { //Black pixel
-        return false;
-    }
-
-    return true;
-}
-
-bool isPointValidSetup(cv::Mat& img, const ompl::base::State * state)
 {
     double* values = state->as<
       ompl::base::RealVectorStateSpace::StateType>()->values;
@@ -87,6 +72,7 @@ make_state(const ompl::base::StateSpacePtr space, double x, double y)
 
 void initializeBeliefModels(cv::Mat& img,
                            const ompl::base::StateSpacePtr space,
+                           unsigned int _nPoints,
                            std::shared_ptr<batching_pomp::cspacebelief::Model<batching_pomp::cspacebelief::BeliefPoint>>& _beliefModel,
                            std::shared_ptr<batching_pomp::cspacebelief::Model<batching_pomp::cspacebelief::BeliefPoint>>& _beliefModel2)
 {
@@ -96,8 +82,7 @@ void initializeBeliefModels(cv::Mat& img,
 
   std::uniform_real_distribution<> dis(0.0,1.0);;
 
-  for(unsigned int i = 1u; i <= 1000u; i++) {
-    //std::cout<<i<<" : ";
+  for(unsigned int i = 1u; i <= _nPoints; i++) {
     double x{dis(gen)};
     double y{dis(gen)};
 
@@ -107,14 +92,13 @@ void initializeBeliefModels(cv::Mat& img,
       = make_state(space,x,y);
 
     double result;
-    if(isPointValidSetup(img,tempState.get())){
+    if(isPointValid(img,tempState.get())){
       result = 0.0;
     }
     else{
       result = 1.0;
     }
 
-    //std::cout<<"("<<x<<","<<y<<") : "<<result<<std::endl;
     batching_pomp::cspacebelief::BeliefPoint tempBP(tempState.get(),2,result);
     _beliefModel->addPoint(tempBP);
     batching_pomp::cspacebelief::BeliefPoint tempBP2(tempState2.get(),2,result);
@@ -185,6 +169,52 @@ void displayRoadmap(const ompl::base::StateSpacePtr space,
   cv::imwrite(win_name,copy);
 }
 
+
+void visualizeBeliefModel(const ompl::base::StateSpacePtr space,
+                          std::shared_ptr<batching_pomp::cspacebelief::Model<batching_pomp::cspacebelief::BeliefPoint>>& _beliefModel,
+                          const std::string& imName)
+{
+  unsigned int this_side = SIDE;
+  cv::Mat debugImage(cv::Size(this_side,this_side),CV_8UC3,cv::Scalar(255,255,255));
+
+  for(unsigned int r = 0; r < this_side; r++)
+  {
+    for(unsigned int c = 0; c < this_side; c++){
+
+      double y = static_cast<double>(r)/this_side;
+      double x = static_cast<double>(c)/this_side;
+
+      ompl::base::ScopedState<ompl::base::RealVectorStateSpace>
+        pixelstate = make_state(space,x,y);
+      batching_pomp::cspacebelief::BeliefPoint pixelBP(pixelstate.get(),2,-1.0);
+
+      double result{_beliefModel->estimate(pixelBP)};
+      //std::cout<<pixelstate<<" : "<<result<<std::endl;
+      // Now choose colour based on result
+      //unsigned char red = static_cast<unsigned char>(result * 255);
+      //unsigned char green = 255 - red;
+      unsigned char red, green;
+      if(result >= 0.5){
+        red = 255;
+        green = static_cast<unsigned char>((2 - 2*result)*255);
+      }
+      else{
+        green = 255;
+        red = static_cast<unsigned char>((0.5 - result)*255);
+      }
+
+      unsigned char blue{0};
+
+      cv::Vec3b color = {blue,green,red};
+
+      debugImage.at<cv::Vec3b>(cv::Point(c,r)) = color;
+
+    }
+  }
+
+  cv::imwrite(imName,debugImage);
+}
+
 /// Get ompl ScopedState from geometric path
 /// \param[in] path The ompl geometric path to get states from
 /// \param[in] idx The index of the state along the path
@@ -215,6 +245,67 @@ double beliefDistanceFunction(
   return diff.norm();
 }
 
+std::vector<double> getAnytimePerformance(std::vector<std::vector<double> > lengthVects,
+                                          std::vector<std::vector<double> > xAxisVects,
+                                          unsigned int nSets,
+                                          double importanceLambda)
+{ 
+  double min_xaxis{std::numeric_limits<double>::infinity()};
+  double max_xaxis{0.0};
+  double min_length{std::numeric_limits<double>::infinity()};
+  
+  // Get min_x, max_x, and min_length
+  for(unsigned int i=0u; i < nSets; i++)
+  { 
+    if(xAxisVects[i][0] < min_xaxis){
+      min_xaxis = xAxisVects[i][0];
+    }
+    
+    if(xAxisVects[i].back() > max_xaxis){
+      max_xaxis = xAxisVects[i].back();
+    }
+    
+    if(lengthVects[i].back() < min_length){
+      min_length = lengthVects[i].back();
+    }
+  }
+  
+  std::vector<double> relPerfs(nSets);
+  double minPerf{std::numeric_limits<double>::infinity()};
+  double range = max_xaxis - min_xaxis;
+  
+  for(unsigned int i=0u; i < nSets; i++)
+  { 
+    double thisperf = (lengthVects[i][0]/min_length) * (xAxisVects[i][0] - min_xaxis) / range;
+    
+    for(unsigned int j=0u; j < lengthVects[i].size()-1; j++)
+    { 
+      double x1 = (xAxisVects[i][j] - min_xaxis)/range;
+      double x2 = (xAxisVects[i][j+1] - min_xaxis)/range;
+      double factor{1.0}; 
+      if(importanceLambda > 0.0){
+        factor = (std::exp(-importanceLambda*x1) - std::exp(-importanceLambda*x2))/importanceLambda;
+      }
+      thisperf += factor*((xAxisVects[i][j+1] - xAxisVects[i][j])/range) * ( lengthVects[i][j+1]/min_length + 0.5*(lengthVects[i][j] - lengthVects[i][j+1])/min_length );
+    }
+    
+    double xlastbut1 =  (xAxisVects[i].back() - min_xaxis)/range;
+    double factorlast{1.0};
+    if(importanceLambda > 0.0){
+      factorlast = (std::exp(-importanceLambda*xlastbut1) - std::exp(-importanceLambda))/importanceLambda;
+    }
+    thisperf += factorlast*(lengthVects[i].back()/min_length) * (max_xaxis - xAxisVects[i].back())/range;
+    
+    relPerfs[i] = thisperf;
+  }
+  
+  return relPerfs;
+}
+
+
+
+
+
 int main(int argc, char* argv[])
 {
 
@@ -227,8 +318,10 @@ int main(int argc, char* argv[])
       ("goal_coords,g",po::value<std::vector<float> >()->multitoken(),"goal coordinates")
       ("num_samples,n",po::value< unsigned int >()->required(),"Number of samples for roadmap")
       ("num_perturbations,p",po::value< unsigned int >()->required(), "Number of times to perturb roadmap samples")
+      ("num_init_checks,i",po::value< unsigned int >()->required(),"Number of initial checks for belief model")
       ("perturb_size,r",po::value<double>()->required(),"Increment for alpha")
       ("dalpha,d",po::value<double>()->required(),"Increment for alpha")
+      ("lambda,l",po::value<double>()->required(),"Lambda weight for anytime performance")
   ;
 
   // Read arguments
@@ -244,6 +337,8 @@ int main(int argc, char* argv[])
   unsigned int num_perturbations(vm["num_perturbations"].as<unsigned int>());
   double perturb_size(vm["perturb_size"].as<double>());
   double dalpha(vm["dalpha"].as<double>());
+  double lambda(vm["lambda"].as<double>());
+  unsigned int initChecks(vm["num_init_checks"].as<unsigned int>());
 
   // Read image
   cv::Mat img = cv::imread(map_file,0); //BnW for computing
@@ -254,7 +349,7 @@ int main(int argc, char* argv[])
       space(new ompl::base::RealVectorStateSpace(2));
   space->as<ompl::base::RealVectorStateSpace>()->setBounds(0.0,1.0);
   space->setLongestValidSegmentFraction(
-      0.01 / space->getMaximumExtent());
+      0.001 / space->getMaximumExtent());
   space->setup();
 
   //Space info
@@ -285,12 +380,16 @@ int main(int argc, char* argv[])
   std::function<double(const batching_pomp::cspacebelief::BeliefPoint& bp1, const batching_pomp::cspacebelief::BeliefPoint& bp2)>
     bpDistFun = std::bind(beliefDistanceFunction,spaceDistFun,std::placeholders::_1,std::placeholders::_2);
   std::shared_ptr<batching_pomp::cspacebelief::Model<batching_pomp::cspacebelief::BeliefPoint>> beliefModel;
-  beliefModel.reset(new batching_pomp::cspacebelief::KNNModel(15,0.5,0.2,bpDistFun));
+  beliefModel.reset(new batching_pomp::cspacebelief::KNNModel(15,0.5,0.2,bpDistFun,0.1));
 
   std::shared_ptr<batching_pomp::cspacebelief::Model<batching_pomp::cspacebelief::BeliefPoint>> beliefModel2;
-  beliefModel2.reset(new batching_pomp::cspacebelief::KNNModel(15,0.5,0.2,bpDistFun));
+  beliefModel2.reset(new batching_pomp::cspacebelief::KNNModel(15,0.5,0.2,bpDistFun,0.1));
 
-  initializeBeliefModels(img,space,beliefModel,beliefModel2);
+  initializeBeliefModels(img,space,initChecks,beliefModel,beliefModel2);
+
+  // std::cout<<"Visualizing model"<<std::endl;
+  // visualizeBeliefModel(space,beliefModel,"model.png");
+  // return 0;
 
   double radius{haltonRadiusFun(num_samples)};
   dbp->setCurrentRadius(radius);
@@ -326,23 +425,27 @@ int main(int argc, char* argv[])
 
   batching_pomp::belief_resampling::SGDBasedResampler resampler(bpPlanner,
                                                                 num_perturbations,
-                                                                dalpha,
                                                                 perturb_size,
                                                                 0.85);
-  resampler.setBatchParams(num_samples,radius);
+  resampler.setBatchParams(num_samples,8);
+  std::chrono::time_point<std::chrono::system_clock> startTime{std::chrono::system_clock::now()};
   resampler.updateRoadmap();
+  std::chrono::time_point<std::chrono::system_clock> endTime{std::chrono::system_clock::now()};
+  std::chrono::duration<double> elapsedSeconds{endTime-startTime};
+  std::cout<<elapsedSeconds.count()<<" seconds for perturbing + grad + batch + softmax "<<std::endl;
 
   batching_pomp::belief_resampling::SGDBasedResampler resampler2(bpPlanner2,
                                                                 0,
-                                                                dalpha,
                                                                 0.0,
                                                                 0.85);
-  resampler2.setBatchParams(num_samples,radius);
+  resampler2.setBatchParams(num_samples,8);
   resampler2.updateRoadmap();
 
   displayRoadmap(space,*(bpPlanner2.g),"normal.png",img_disp) ;
   displayRoadmap(space,*(bpPlanner.g),"belief.png",img_disp) ;
 
+  std::vector<std::vector<double> > lengthVects(2);
+  std::vector<std::vector<double> > collCheckVects(2);
 
   ompl::base::PlannerStatus status;
   do
@@ -359,6 +462,8 @@ int main(int argc, char* argv[])
             pdef->getSolutionPath());
 
       std::cout<<path->length()<<" "<<bpPlanner.getNumCollChecks()<<std::endl;
+      lengthVects[0].push_back(path->length());
+      collCheckVects[0].push_back(bpPlanner.getNumCollChecks());
 
       std::size_t pathSize{path -> as< ompl::geometric::PathGeometric >()->getStateCount()};
       state_list.resize(pathSize);
@@ -391,6 +496,9 @@ int main(int argc, char* argv[])
             pdef->getSolutionPath());
 
       std::cout<<path->length()<<" "<<bpPlanner2.getNumCollChecks()<<std::endl;
+      lengthVects[1].push_back(path->length());
+      collCheckVects[1].push_back(bpPlanner2.getNumCollChecks());
+
 
       std::size_t pathSize{path -> as< ompl::geometric::PathGeometric >()->getStateCount()};
       state_list.resize(pathSize);
@@ -406,6 +514,10 @@ int main(int argc, char* argv[])
 
   }while(status != ompl::base::PlannerStatus::TIMEOUT &&
     status != ompl::base::PlannerStatus::EXACT_SOLUTION);
+
+  std::vector<double> relPerfs = getAnytimePerformance(lengthVects,collCheckVects,2,lambda);
+
+  std::cout<<" Belief : "<<relPerfs[0]<<std::endl<<" Normal : "<<relPerfs[1]<<std::endl;
 
   return 0;
 }
